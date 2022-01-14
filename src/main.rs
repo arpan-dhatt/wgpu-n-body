@@ -1,3 +1,5 @@
+mod inits;
+
 use std::borrow::Cow;
 
 use anyhow::{Context, Result};
@@ -6,7 +8,7 @@ use wgpu::util::DeviceExt;
 use winit::{
     event::{ElementState, Event, KeyboardInput, VirtualKeyCode, WindowEvent},
     event_loop::{ControlFlow, EventLoop},
-    window::{Window, WindowBuilder},
+    window::{Window, WindowBuilder}, dpi::LogicalSize,
 };
 
 const PARTICLES_PER_GROUP: u32 = 64;
@@ -65,7 +67,7 @@ struct State {
 }
 
 impl State {
-    async fn new(win: &Window) -> Result<Self> {
+    async fn new(win: &Window, sim_params: SimParams, init_fn: fn(&SimParams) -> Vec<Particle>) -> Result<Self> {
         let size = win.inner_size();
 
         let instance = wgpu::Instance::new(wgpu::Backends::all());
@@ -101,12 +103,6 @@ impl State {
         };
         surface.configure(&device, &config);
 
-        let sim_params = SimParams {
-            particle_num: 10000,
-            g: 0.000001,
-            e: 0.0001,
-            dt: 0.016,
-        };
         let sim_params_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Sim Params Buffer"),
             contents: bytemuck::cast_slice(&[sim_params]),
@@ -222,23 +218,7 @@ impl State {
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
         });
 
-        let mut rng = rand::thread_rng();
-        let pos_unif = Uniform::new_inclusive(-1.0, 1.0);
-        let mut initial_particles = Vec::with_capacity(sim_params.particle_num as usize);
-        for _ in 0..sim_params.particle_num {
-            initial_particles.push(Particle {
-                position: [
-                    pos_unif.sample(&mut rng),
-                    pos_unif.sample(&mut rng),
-                    pos_unif.sample(&mut rng),
-                ],
-                velocity: [
-                    pos_unif.sample(&mut rng) * 0.001,
-                    pos_unif.sample(&mut rng) * 0.001,
-                    pos_unif.sample(&mut rng) * 0.001,
-                ]
-            });
-        }
+        let initial_particles = init_fn(&sim_params);
 
         let mut particle_buffers = Vec::<wgpu::Buffer>::new();
         let mut particle_bind_groups = Vec::<wgpu::BindGroup>::new();
@@ -370,11 +350,19 @@ impl State {
 fn main() {
     env_logger::init();
     let event_loop = EventLoop::new();
-    let window = WindowBuilder::new().build(&event_loop).unwrap();
+    let window = WindowBuilder::new()
+        .with_inner_size(LogicalSize::new(400, 400))
+        .build(&event_loop).unwrap();
     let mut should_render = true;
     window.focus_window();
 
-    let mut state = pollster::block_on(State::new(&window)).unwrap();
+    let sim_params = SimParams {
+        particle_num: 15000,
+        g: 0.0000003,
+        e: 0.0001,
+        dt: 0.016,
+    };
+    let mut state = pollster::block_on(State::new(&window, sim_params, inits::disc_init)).unwrap();
 
     event_loop.run(move |event, _, control_flow| match event {
         Event::RedrawRequested(window_id) if window_id == window.id() => {
