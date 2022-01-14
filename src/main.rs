@@ -102,10 +102,10 @@ impl State {
         surface.configure(&device, &config);
 
         let sim_params = SimParams {
-            particle_num: 100,
-            g: 0.01,
-            e: 0.1,
-            dt: 0.16,
+            particle_num: 10000,
+            g: 0.000001,
+            e: 0.0001,
+            dt: 0.016,
         };
         let sim_params_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Sim Params Buffer"),
@@ -233,9 +233,9 @@ impl State {
                     pos_unif.sample(&mut rng),
                 ],
                 velocity: [
-                    pos_unif.sample(&mut rng) * 0.01,
-                    pos_unif.sample(&mut rng) * 0.01,
-                    pos_unif.sample(&mut rng) * 0.01,
+                    pos_unif.sample(&mut rng) * 0.001,
+                    pos_unif.sample(&mut rng) * 0.001,
+                    pos_unif.sample(&mut rng) * 0.001,
                 ]
             });
         }

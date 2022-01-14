@@ -33,7 +33,7 @@ fn main([[builtin(global_invocation_id)]] global_invocation_id: vec3<u32>) {
     var i: u32 = 0u;
     loop {
         if (i >= total) {
-            return;
+            break;
         }
         if (i == index) {
             continue;
@@ -44,8 +44,8 @@ fn main([[builtin(global_invocation_id)]] global_invocation_id: vec3<u32>) {
         var bVel = vec3<f32>(_q.vx, _q.vy, _q.vz);
 
         let r: f32 = distance(aPos, bPos);
-        let force_mag: f32 = params.g / (r * r * r + params.e); 
-        let acc: vec3<f32> = force_mag * normalize(bPos - aPos);
+        let force: vec3<f32> = params.g / (r * r * r + params.e) * normalize(bPos - aPos); 
+        let acc: vec3<f32> = force;
         aVel = aVel + acc * params.dt;
 
         continuing {
