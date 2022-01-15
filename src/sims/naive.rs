@@ -141,7 +141,19 @@ impl Simulator for NaiveSim {
         })
     }
 
-    fn encode(encoder: &mut wgpu::CommandEncoder) {
-        todo!()
+    fn encode(&mut self, encoder: &mut wgpu::CommandEncoder) {
+        let mut cpass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor { label: None });
+        cpass.set_pipeline(&self.compute_pipeline);
+        cpass.set_bind_group(0, &self.particle_bind_groups[self.step_num % 2], &[]);
+        cpass.dispatch(self.work_group_count, 1, 1);
+        self.step_num += 1;
+    }
+
+    fn dest_particle_slice(&self) -> wgpu::BufferSlice {
+        self.particle_buffers[(self.step_num + 1) % 2].slice(..)
+    }
+
+    fn sim_params(&self) -> SimParams {
+        self.sim_params.clone()
     }
 }

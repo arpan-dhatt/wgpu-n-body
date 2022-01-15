@@ -1,9 +1,9 @@
-use crate::Particle;
+use crate::sims::{Particle, SimParams};
 
 use glam::Vec3A;
 use rand::{distributions::Uniform, prelude::Distribution};
 
-pub(crate) fn uniform_init(sim_params: &crate::SimParams) -> Vec<Particle> {
+pub(crate) fn uniform_init(sim_params: &SimParams) -> Vec<Particle> {
     let mut rng = rand::thread_rng();
     let pos_unif = Uniform::new_inclusive(-1.0, 1.0);
     let mut initial_particles = Vec::with_capacity(sim_params.particle_num as usize);
@@ -24,7 +24,7 @@ pub(crate) fn uniform_init(sim_params: &crate::SimParams) -> Vec<Particle> {
     initial_particles
 }
 
-pub(crate) fn disc_init(sim_params: &crate::SimParams) -> Vec<Particle> {
+pub(crate) fn disc_init(sim_params: &SimParams) -> Vec<Particle> {
     let coeff: f32 = 0.05;
     let mut rng = rand::thread_rng();
     let unif = Uniform::new_inclusive(-1.0, 1.0);

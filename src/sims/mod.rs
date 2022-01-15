@@ -49,5 +49,7 @@ pub trait Simulator {
     ) -> anyhow::Result<Self>
     where
         Self: Sized;
-    fn encode(encoder: &mut wgpu::CommandEncoder);
+    fn encode(&mut self, encoder: &mut wgpu::CommandEncoder);
+    fn dest_particle_slice(&self) -> wgpu::BufferSlice;
+    fn sim_params(&self) -> SimParams;
 }
