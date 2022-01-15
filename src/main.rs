@@ -1,9 +1,11 @@
+mod sims;
 mod inits;
 
 use std::borrow::Cow;
 
 use anyhow::{Context, Result};
-use rand::{distributions::Uniform, prelude::Distribution};
+
+use sims::Simulator;
 use wgpu::util::DeviceExt;
 use winit::{
     event::{ElementState, Event, KeyboardInput, VirtualKeyCode, WindowEvent},
@@ -11,52 +13,13 @@ use winit::{
     window::{Window, WindowBuilder}, dpi::LogicalSize,
 };
 
-const PARTICLES_PER_GROUP: u32 = 64;
-
-#[repr(C)]
-#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
-struct Particle {
-    position: [f32; 3],
-    velocity: [f32; 3],
-}
-
-impl Particle {
-    fn desc<'a>() -> wgpu::VertexBufferLayout<'a> {
-        wgpu::VertexBufferLayout {
-            array_stride: std::mem::size_of::<Particle>() as wgpu::BufferAddress,
-            step_mode: wgpu::VertexStepMode::Instance,
-            attributes: &[
-                wgpu::VertexAttribute {
-                    offset: 0,
-                    shader_location: 0,
-                    format: wgpu::VertexFormat::Float32x3,
-                },
-                wgpu::VertexAttribute {
-                    offset: std::mem::size_of::<[f32; 3]>() as wgpu::BufferAddress,
-                    shader_location: 1,
-                    format: wgpu::VertexFormat::Float32x3,
-                },
-            ],
-        }
-    }
-}
-
-#[repr(C)]
-#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
-struct SimParams {
-    particle_num: u32,
-    g: f32,
-    e: f32,
-    dt: f32,
-}
-
 struct State {
     surface: wgpu::Surface,
     config: wgpu::SurfaceConfiguration,
     device: wgpu::Device,
     queue: wgpu::Queue,
     size: winit::dpi::PhysicalSize<u32>,
-    sim_params: SimParams,
+    sim_params: sims::SimParams,
     particle_bind_groups: Vec<wgpu::BindGroup>,
     particle_buffers: Vec<wgpu::Buffer>,
     vertices_buffer: wgpu::Buffer,
@@ -67,7 +30,7 @@ struct State {
 }
 
 impl State {
-    async fn new(win: &Window, sim_params: SimParams, init_fn: fn(&SimParams) -> Vec<Particle>) -> Result<Self> {
+    async fn new(win: &Window, sim_params: sims::SimParams, init_fn: fn(&sims::SimParams) -> Vec<sims::Particle>) -> Result<Self> {
         let size = win.inner_size();
 
         let instance = wgpu::Instance::new(wgpu::Backends::all());
@@ -130,7 +93,7 @@ impl State {
                             ty: wgpu::BufferBindingType::Uniform,
                             has_dynamic_offset: false,
                             min_binding_size: wgpu::BufferSize::new(
-                                std::mem::size_of::<SimParams>() as _,
+                                std::mem::size_of::<sims::SimParams>() as _,
                             ),
                         },
                         count: None,
@@ -142,7 +105,7 @@ impl State {
                             ty: wgpu::BufferBindingType::Storage { read_only: true },
                             has_dynamic_offset: false,
                             min_binding_size: wgpu::BufferSize::new(
-                                (sim_params.particle_num as usize * std::mem::size_of::<Particle>())
+                                (sim_params.particle_num as usize * std::mem::size_of::<sims::Particle>())
                                     as _,
                             ),
                         },
@@ -155,7 +118,7 @@ impl State {
                             ty: wgpu::BufferBindingType::Storage { read_only: false },
                             has_dynamic_offset: false,
                             min_binding_size: wgpu::BufferSize::new(
-                                (sim_params.particle_num as usize * std::mem::size_of::<Particle>())
+                                (sim_params.particle_num as usize * std::mem::size_of::<sims::Particle>())
                                     as _,
                             ),
                         },
@@ -185,7 +148,7 @@ impl State {
                 module: &render_module,
                 entry_point: "main_vs",
                 buffers: &[
-                    Particle::desc(),
+                    sims::Particle::desc(),
                     wgpu::VertexBufferLayout {
                         array_stride: 2 * 4,
                         step_mode: wgpu::VertexStepMode::Vertex,
@@ -256,7 +219,7 @@ impl State {
         }
 
         let work_group_count =
-            ((sim_params.particle_num as f32) / (PARTICLES_PER_GROUP as f32)).ceil() as u32;
+            ((sim_params.particle_num as f32) / (sims::PARTICLES_PER_GROUP as f32)).ceil() as u32;
 
         Ok(Self {
             surface,
@@ -356,8 +319,8 @@ fn main() {
     let mut should_render = true;
     window.focus_window();
 
-    let sim_params = SimParams {
-        particle_num: 15000,
+    let sim_params = sims::SimParams {
+        particle_num: 20000,
         g: 0.0000003,
         e: 0.0001,
         dt: 0.016,
