@@ -19,13 +19,14 @@ pub(crate) fn uniform_init(sim_params: &SimParams) -> Vec<Particle> {
                 pos_unif.sample(&mut rng) * 0.001,
                 pos_unif.sample(&mut rng) * 0.001,
             ],
+            acceleration: [0.0, 0.0, 0.0]
         });
     }
     initial_particles
 }
 
 pub(crate) fn disc_init(sim_params: &SimParams) -> Vec<Particle> {
-    let coeff: f32 = 0.05;
+    let coeff: f32 = 0.01;
     let mut rng = rand::thread_rng();
     let unif = Uniform::new_inclusive(-1.0, 1.0);
     let mut initial_particles = Vec::with_capacity(sim_params.particle_num as usize);
@@ -38,7 +39,8 @@ pub(crate) fn disc_init(sim_params: &SimParams) -> Vec<Particle> {
         initial_particles.push(
             Particle {
                 position: pos.to_array(),
-                velocity: vel.to_array()
+                velocity: vel.to_array(),
+                acceleration: [0.0, 0.0, 0.0]
             }
         )
     }

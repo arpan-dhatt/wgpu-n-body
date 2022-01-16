@@ -1,6 +1,7 @@
 struct Particle {
     px: f32; py: f32; pz: f32;
     vx: f32; vy: f32; vz: f32;
+    ax: f32; ay: f32; az: f32;
 };
 
 struct SimParams {
@@ -11,7 +12,7 @@ struct SimParams {
 };
 
 struct Particles {
-    particles: [[stride(24)]] array<Particle>;
+    particles: [[stride(36)]] array<Particle>;
 };
 
 [[group(0), binding(0)]] var<uniform> params: SimParams;
@@ -29,7 +30,12 @@ fn main([[builtin(global_invocation_id)]] global_invocation_id: vec3<u32>) {
     let _p = particlesSrc.particles[index];
     var aPos = vec3<f32>(_p.px, _p.py, _p.pz);
     var aVel = vec3<f32>(_p.vx, _p.vy, _p.vz);
+    var aAcc = vec3<f32>(_p.ax, _p.ay, _p.az);
 
+    aVel = aVel + aAcc * params.dt / 2.0;
+    aPos = aPos + aVel * params.dt;
+
+    var acc = vec3<f32>(0.0, 0.0, 0.0);
     var i: u32 = 0u;
     loop {
         if (i >= total) {
@@ -45,14 +51,14 @@ fn main([[builtin(global_invocation_id)]] global_invocation_id: vec3<u32>) {
 
         let r: f32 = distance(aPos, bPos);
         let force: vec3<f32> = params.g / (r * r * r + params.e) * normalize(bPos - aPos); 
-        let acc: vec3<f32> = force;
-        aVel = aVel + acc * params.dt;
+        let _acc: vec3<f32> = force;
+        acc = acc + _acc * params.dt;
 
         continuing {
             i = i + 1u;
         }
     }
-    aPos = aPos + aVel * params.dt;
+    aVel = aVel + acc * params.dt / 2.0;
 
-    particlesDst.particles[index] = Particle(aPos.x, aPos.y, aPos.z, aVel.x, aVel.y, aVel.z);
+    particlesDst.particles[index] = Particle(aPos.x, aPos.y, aPos.z, aVel.x, aVel.y, aVel.z, acc.x, acc.y, acc.z);
 }

@@ -21,7 +21,7 @@ fn main() {
 
     let sim_params = sims::SimParams {
         particle_num: 15000,
-        g: 0.0000003,
+        g: 0.000001,
         e: 0.0001,
         dt: 0.016,
     };
