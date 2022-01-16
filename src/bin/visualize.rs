@@ -1,13 +1,10 @@
-mod sims;
-mod inits;
-mod runners;
+use wgpu_n_body::{inits, runners, sims, sims::NaiveSim};
 
-use sims::{Simulator, NaiveSim};
-use wgpu::util::DeviceExt;
 use winit::{
+    dpi::LogicalSize,
     event::{ElementState, Event, KeyboardInput, VirtualKeyCode, WindowEvent},
     event_loop::{ControlFlow, EventLoop},
-    window::{Window, WindowBuilder}, dpi::LogicalSize,
+    window::WindowBuilder,
 };
 
 fn main() {
@@ -15,17 +12,23 @@ fn main() {
     let event_loop = EventLoop::new();
     let window = WindowBuilder::new()
         .with_inner_size(LogicalSize::new(400, 400))
-        .build(&event_loop).unwrap();
+        .build(&event_loop)
+        .unwrap();
     let mut should_render = true;
     window.focus_window();
 
     let sim_params = sims::SimParams {
-        particle_num: 15000,
+        particle_num: 10000,
         g: 0.000001,
         e: 0.0001,
         dt: 0.016,
     };
-    let mut state = pollster::block_on(runners::OnlineRenderer::<NaiveSim>::new(&window, sim_params, inits::disc_init)).unwrap();
+    let mut state = pollster::block_on(runners::OnlineRenderer::<NaiveSim>::new(
+        &window,
+        sim_params,
+        inits::disc_init,
+    ))
+    .unwrap();
 
     event_loop.run(move |event, _, control_flow| match event {
         Event::RedrawRequested(window_id) if window_id == window.id() => {

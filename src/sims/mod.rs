@@ -9,7 +9,7 @@ pub const PARTICLES_PER_GROUP: u32 = 64;
 pub struct Particle {
     pub position: [f32; 3],
     pub velocity: [f32; 3],
-    pub acceleration: [f32; 3]
+    pub acceleration: [f32; 3],
 }
 
 impl Particle {
@@ -45,6 +45,17 @@ pub struct SimParams {
     pub g: f32,
     pub e: f32,
     pub dt: f32,
+}
+
+impl Default for SimParams {
+    fn default() -> Self {
+        SimParams {
+            particle_num: 10000,
+            g: 0.000001,
+            e: 0.0001,
+            dt: 0.016,
+        }
+    }
 }
 
 pub trait Simulator {

@@ -1,11 +1,14 @@
 use std::borrow::Cow;
 
+use crate::{sims, sims::Simulator};
 use anyhow::Context;
 use wgpu::util::DeviceExt;
-use winit::{window::Window, event::WindowEvent};
-use crate::{sims, sims::Simulator};
+use winit::{event::WindowEvent, window::Window};
 
-pub struct OnlineRenderer<T> where T: Simulator {
+pub struct OnlineRenderer<T>
+where
+    T: Simulator,
+{
     sim: T,
     surface: wgpu::Surface,
     config: wgpu::SurfaceConfiguration,
@@ -17,8 +20,15 @@ pub struct OnlineRenderer<T> where T: Simulator {
     frame_num: usize,
 }
 
-impl<T> OnlineRenderer<T> where T: Simulator {
-    pub async fn new(win: &Window, sim_params: sims::SimParams, init_fn: fn(&sims::SimParams) -> Vec<sims::Particle>) -> anyhow::Result<Self> {
+impl<T> OnlineRenderer<T>
+where
+    T: Simulator,
+{
+    pub async fn new(
+        win: &Window,
+        sim_params: sims::SimParams,
+        init_fn: fn(&sims::SimParams) -> Vec<sims::Particle>,
+    ) -> anyhow::Result<Self> {
         let size = win.inner_size();
 
         let instance = wgpu::Instance::new(wgpu::Backends::all());
@@ -178,5 +188,4 @@ impl<T> OnlineRenderer<T> where T: Simulator {
     }
 
     pub fn update(&mut self) {}
-
 }

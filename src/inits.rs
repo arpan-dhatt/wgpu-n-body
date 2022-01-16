@@ -3,7 +3,7 @@ use crate::sims::{Particle, SimParams};
 use glam::Vec3A;
 use rand::{distributions::Uniform, prelude::Distribution};
 
-pub(crate) fn uniform_init(sim_params: &SimParams) -> Vec<Particle> {
+pub fn uniform_init(sim_params: &SimParams) -> Vec<Particle> {
     let mut rng = rand::thread_rng();
     let pos_unif = Uniform::new_inclusive(-1.0, 1.0);
     let mut initial_particles = Vec::with_capacity(sim_params.particle_num as usize);
@@ -19,13 +19,13 @@ pub(crate) fn uniform_init(sim_params: &SimParams) -> Vec<Particle> {
                 pos_unif.sample(&mut rng) * 0.001,
                 pos_unif.sample(&mut rng) * 0.001,
             ],
-            acceleration: [0.0, 0.0, 0.0]
+            acceleration: [0.0, 0.0, 0.0],
         });
     }
     initial_particles
 }
 
-pub(crate) fn disc_init(sim_params: &SimParams) -> Vec<Particle> {
+pub fn disc_init(sim_params: &SimParams) -> Vec<Particle> {
     let coeff: f32 = 0.01;
     let mut rng = rand::thread_rng();
     let unif = Uniform::new_inclusive(-1.0, 1.0);
@@ -36,17 +36,11 @@ pub(crate) fn disc_init(sim_params: &SimParams) -> Vec<Particle> {
             pos = Vec3A::new(unif.sample(&mut rng), unif.sample(&mut rng), 0.0);
         }
         let vel = coeff * 1.0 / (pos.length().sqrt() + 0.001) * pos.cross(Vec3A::Z).normalize();
-        initial_particles.push(
-            Particle {
-                position: pos.to_array(),
-                velocity: vel.to_array(),
-                acceleration: [0.0, 0.0, 0.0]
-            }
-        )
+        initial_particles.push(Particle {
+            position: pos.to_array(),
+            velocity: vel.to_array(),
+            acceleration: [0.0, 0.0, 0.0],
+        })
     }
     initial_particles
-}
-
-fn dist(v: &[f32; 3]) -> f32 {
-    (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt()
 }
