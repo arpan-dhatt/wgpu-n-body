@@ -110,7 +110,7 @@ impl Simulator for TreeSim {
         let initial_particles = init_fn(&sim_params);
 
         let mut particle_buffers = Vec::<wgpu::Buffer>::new();
-        let particle_bind_groups = Vec::<wgpu::BindGroup>::new();
+        let mut particle_bind_groups = Vec::<wgpu::BindGroup>::new();
         for i in 0..2 {
             particle_buffers.push(
                 device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -121,7 +121,7 @@ impl Simulator for TreeSim {
                         | wgpu::BufferUsages::COPY_SRC
                         | wgpu::BufferUsages::COPY_DST,
                 }),
-            )
+            );
         }
 
         let particle_read_buffer = device.create_buffer(&wgpu::BufferDescriptor {
@@ -139,6 +139,31 @@ impl Simulator for TreeSim {
                 | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
+
+        for i in 0..2 {
+            particle_bind_groups.push(device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some(&format!("Bind Group {}", i)),
+                layout: &compute_bind_group_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: sim_params_buffer.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: particle_buffers[i].as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: tree_buffer.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 3,
+                        resource: particle_buffers[(i + 1) % 2].as_entire_binding(),
+                    },
+                ],
+            }));
+        }
 
         let tree_staging_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Tree Staging Buffer"),
@@ -218,7 +243,8 @@ impl Simulator for TreeSim {
 
         encoder.push_debug_group("n-body movement");
         {
-            let mut cpass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor { label: None });
+            let mut cpass =
+                encoder.begin_compute_pass(&wgpu::ComputePassDescriptor { label: None });
             cpass.set_pipeline(&self.compute_pipeline);
             cpass.set_bind_group(0, &self.particle_bind_groups[self.step_num % 2], &[]);
             cpass.dispatch(self.work_group_count, 1, 1);
