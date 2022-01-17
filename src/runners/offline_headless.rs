@@ -1,4 +1,4 @@
-use crate::{sims, sims::Simulator};
+use crate::{sims, sims::{Simulator, Particles}};
 use anyhow::Context;
 
 pub struct OfflineHeadless<T>
@@ -16,7 +16,7 @@ where
 {
     pub async fn new(
         sim_params: sims::SimParams,
-        init_fn: fn(&sims::SimParams) -> Vec<sims::Particle>,
+        init_fn: fn(&sims::SimParams) -> Particles,
     ) -> anyhow::Result<Self> {
         let instance = wgpu::Instance::new(wgpu::Backends::all());
         let adapter = instance

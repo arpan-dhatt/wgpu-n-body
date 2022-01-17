@@ -4,36 +4,18 @@ pub use naive::NaiveSim;
 
 pub const PARTICLES_PER_GROUP: u32 = 64;
 
-#[repr(C)]
-#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
-pub struct Particle {
-    pub position: [f32; 3],
-    pub velocity: [f32; 3],
-    pub acceleration: [f32; 3],
+pub struct Particles {
+    pub position: Vec<[f32; 3]>,
+    pub velocity: Vec<[f32; 3]>,
+    pub acceleration: Vec<[f32; 3]>,
 }
 
-impl Particle {
-    pub fn desc<'a>() -> wgpu::VertexBufferLayout<'a> {
-        wgpu::VertexBufferLayout {
-            array_stride: std::mem::size_of::<Particle>() as wgpu::BufferAddress,
-            step_mode: wgpu::VertexStepMode::Instance,
-            attributes: &[
-                wgpu::VertexAttribute {
-                    offset: 0,
-                    shader_location: 0,
-                    format: wgpu::VertexFormat::Float32x3,
-                },
-                wgpu::VertexAttribute {
-                    offset: std::mem::size_of::<[f32; 3]>() as wgpu::BufferAddress,
-                    shader_location: 1,
-                    format: wgpu::VertexFormat::Float32x3,
-                },
-                wgpu::VertexAttribute {
-                    offset: (std::mem::size_of::<[f32; 3]>() * 2) as wgpu::BufferAddress,
-                    shader_location: 2,
-                    format: wgpu::VertexFormat::Float32x3,
-                },
-            ],
+impl Default for Particles {
+    fn default() -> Self {
+        Particles {
+            position: Vec::new(),
+            velocity: Vec::new(),
+            acceleration: Vec::new(),
         }
     }
 }
@@ -62,7 +44,7 @@ pub trait Simulator {
     fn new(
         device: &wgpu::Device,
         sim_params: SimParams,
-        init_fn: fn(&SimParams) -> Vec<Particle>,
+        init_fn: fn(&SimParams) -> Particles,
     ) -> anyhow::Result<Self>
     where
         Self: Sized;

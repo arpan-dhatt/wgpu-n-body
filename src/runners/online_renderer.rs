@@ -1,6 +1,6 @@
 use std::borrow::Cow;
 
-use crate::{sims, sims::Simulator};
+use crate::{sims, sims::{Simulator, Particles}};
 use anyhow::Context;
 use wgpu::util::DeviceExt;
 use winit::{event::WindowEvent, window::Window};
@@ -27,7 +27,7 @@ where
     pub async fn new(
         win: &Window,
         sim_params: sims::SimParams,
-        init_fn: fn(&sims::SimParams) -> Vec<sims::Particle>,
+        init_fn: fn(&sims::SimParams) -> Particles,
     ) -> anyhow::Result<Self> {
         let size = win.inner_size();
 
@@ -85,11 +85,15 @@ where
                 module: &render_module,
                 entry_point: "main_vs",
                 buffers: &[
-                    sims::Particle::desc(),
+                    wgpu::VertexBufferLayout {
+                        array_stride: 3 * 4,
+                        step_mode: wgpu::VertexStepMode::Instance,
+                        attributes: &wgpu::vertex_attr_array![0 => Float32x3],
+                    },
                     wgpu::VertexBufferLayout {
                         array_stride: 2 * 4,
                         step_mode: wgpu::VertexStepMode::Vertex,
-                        attributes: &wgpu::vertex_attr_array![3 => Float32x2],
+                        attributes: &wgpu::vertex_attr_array![1 => Float32x2],
                     },
                 ],
             },

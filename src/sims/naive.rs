@@ -1,15 +1,16 @@
 use std::borrow::Cow;
 
-use super::Particle;
+use super::Particles;
 use super::SimParams;
 use super::Simulator;
 use anyhow::Result;
 use wgpu::util::DeviceExt;
 
+
 pub struct NaiveSim {
     sim_params: SimParams,
     particle_bind_groups: Vec<wgpu::BindGroup>,
-    particle_buffers: Vec<wgpu::Buffer>,
+    particle_buffers: Vec<ParticleBuffers>,
     compute_pipeline: wgpu::ComputePipeline,
     work_group_count: u32,
     step_num: usize,
@@ -19,7 +20,7 @@ impl Simulator for NaiveSim {
     fn new(
         device: &wgpu::Device,
         sim_params: SimParams,
-        init_fn: fn(&SimParams) -> Vec<Particle>,
+        init_fn: fn(&SimParams) -> Particles,
     ) -> Result<Self> {
         let sim_params_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Sim Params Buffer"),
@@ -55,7 +56,7 @@ impl Simulator for NaiveSim {
                             ty: wgpu::BufferBindingType::Storage { read_only: true },
                             has_dynamic_offset: false,
                             min_binding_size: wgpu::BufferSize::new(
-                                (sim_params.particle_num as usize * std::mem::size_of::<Particle>())
+                                (sim_params.particle_num as usize * std::mem::size_of::<[f32; 3]>())
                                     as _,
                             ),
                         },
@@ -65,15 +66,68 @@ impl Simulator for NaiveSim {
                         binding: 2,
                         visibility: wgpu::ShaderStages::COMPUTE,
                         ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Storage { read_only: false },
+                            ty: wgpu::BufferBindingType::Storage { read_only: true },
                             has_dynamic_offset: false,
                             min_binding_size: wgpu::BufferSize::new(
-                                (sim_params.particle_num as usize * std::mem::size_of::<Particle>())
+                                (sim_params.particle_num as usize * std::mem::size_of::<[f32; 3]>())
                                     as _,
                             ),
                         },
                         count: None,
                     },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 3,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage { read_only: true },
+                            has_dynamic_offset: false,
+                            min_binding_size: wgpu::BufferSize::new(
+                                (sim_params.particle_num as usize * std::mem::size_of::<[f32; 3]>())
+                                    as _,
+                            ),
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 4,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage { read_only: false },
+                            has_dynamic_offset: false,
+                            min_binding_size: wgpu::BufferSize::new(
+                                (sim_params.particle_num as usize * std::mem::size_of::<[f32; 3]>())
+                                    as _,
+                            ),
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 5,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage { read_only: false },
+                            has_dynamic_offset: false,
+                            min_binding_size: wgpu::BufferSize::new(
+                                (sim_params.particle_num as usize * std::mem::size_of::<[f32; 3]>())
+                                    as _,
+                            ),
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 6,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage { read_only: false },
+                            has_dynamic_offset: false,
+                            min_binding_size: wgpu::BufferSize::new(
+                                (sim_params.particle_num as usize * std::mem::size_of::<[f32; 3]>())
+                                    as _,
+                            ),
+                        },
+                        count: None,
+                    },
+
                 ],
             });
 
@@ -93,18 +147,33 @@ impl Simulator for NaiveSim {
 
         let initial_particles = init_fn(&sim_params);
 
-        let mut particle_buffers = Vec::<wgpu::Buffer>::new();
+        let mut particle_buffers = Vec::<ParticleBuffers>::new();
         let mut particle_bind_groups = Vec::<wgpu::BindGroup>::new();
         for i in 0..2 {
             particle_buffers.push(
-                device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some(&format!("Particle Buffer {}", i)),
-                    contents: bytemuck::cast_slice(&initial_particles),
-                    usage: wgpu::BufferUsages::VERTEX
-                        | wgpu::BufferUsages::STORAGE
-                        | wgpu::BufferUsages::COPY_DST,
-                }),
-            )
+                ParticleBuffers { 
+                    position: device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                        label: Some(&format!("Particle Buffer (pos) {}", i)),
+                        contents: bytemuck::cast_slice(&initial_particles.position),
+                        usage: wgpu::BufferUsages::VERTEX
+                            | wgpu::BufferUsages::STORAGE
+                            | wgpu::BufferUsages::COPY_DST
+                    }), 
+                    velocity: device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                        label: Some(&format!("Particle Buffer (pos) {}", i)),
+                        contents: bytemuck::cast_slice(&initial_particles.velocity),
+                        usage: wgpu::BufferUsages::VERTEX
+                            | wgpu::BufferUsages::STORAGE
+                            | wgpu::BufferUsages::COPY_DST
+                    }), 
+                    acceleration: device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                        label: Some(&format!("Particle Buffer (pos) {}", i)),
+                        contents: bytemuck::cast_slice(&initial_particles.acceleration),
+                        usage: wgpu::BufferUsages::VERTEX
+                            | wgpu::BufferUsages::STORAGE
+                            | wgpu::BufferUsages::COPY_DST
+                    }) 
+                });
         }
 
         for i in 0..2 {
@@ -118,11 +187,27 @@ impl Simulator for NaiveSim {
                     },
                     wgpu::BindGroupEntry {
                         binding: 1,
-                        resource: particle_buffers[i].as_entire_binding(),
+                        resource: particle_buffers[i].position.as_entire_binding(),
                     },
                     wgpu::BindGroupEntry {
                         binding: 2,
-                        resource: particle_buffers[(i + 1) % 2].as_entire_binding(),
+                        resource: particle_buffers[i].velocity.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 3,
+                        resource: particle_buffers[i].acceleration.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 4,
+                        resource: particle_buffers[(i + 1) % 2].position.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 5,
+                        resource: particle_buffers[(i + 1) % 2].velocity.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 6,
+                        resource: particle_buffers[(i + 1) % 2].acceleration.as_entire_binding(),
                     },
                 ],
             }));
@@ -150,10 +235,16 @@ impl Simulator for NaiveSim {
     }
 
     fn dest_particle_slice(&self) -> wgpu::BufferSlice {
-        self.particle_buffers[(self.step_num + 1) % 2].slice(..)
+        self.particle_buffers[(self.step_num + 1) % 2].position.slice(..)
     }
 
     fn sim_params(&self) -> SimParams {
         self.sim_params.clone()
     }
+}
+
+struct ParticleBuffers {
+    position: wgpu::Buffer,
+    velocity: wgpu::Buffer,
+    acceleration: wgpu::Buffer
 }
