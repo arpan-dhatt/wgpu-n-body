@@ -1,4 +1,5 @@
 mod naive;
+mod tree;
 
 pub use naive::NaiveSim;
 
