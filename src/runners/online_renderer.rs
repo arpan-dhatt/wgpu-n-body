@@ -147,14 +147,7 @@ where
             color_attachments: &color_attachements,
             depth_stencil_attachment: None,
         };
-        let mut encoder = self
-            .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("Main Command"),
-            });
-        encoder.push_debug_group("compute n-body movement");
-        self.sim.encode(&mut encoder);
-        encoder.pop_debug_group();
+        let mut encoder = self.sim.encode(&self.device, &self.queue);
         encoder.push_debug_group("draw bodies");
         {
             let mut rpass = encoder.begin_render_pass(&render_pass_descriptor);

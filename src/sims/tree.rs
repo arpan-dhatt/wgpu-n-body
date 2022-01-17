@@ -144,7 +144,7 @@ impl Simulator for TreeSim {
             label: Some("Tree Staging Buffer"),
             size: (std::mem::size_of::<Octant>() as u32 * sim_params.particle_num * 4) as _,
             usage: wgpu::BufferUsages::MAP_WRITE | wgpu::BufferUsages::COPY_SRC,
-            mapped_at_creation: false
+            mapped_at_creation: false,
         });
 
         let work_group_count =
@@ -163,17 +163,83 @@ impl Simulator for TreeSim {
         })
     }
 
-    fn encode(&mut self, encoder: &mut wgpu::CommandEncoder) {
-        todo!()
+    fn encode(&mut self, device: &wgpu::Device, queue: &wgpu::Queue) -> wgpu::CommandEncoder {
+        let mut read_encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("Particle Data Reader Command"),
+        });
+        {
+            read_encoder.copy_buffer_to_buffer(
+                &self.particle_buffers[self.step_num % 2],
+                0,
+                &self.particle_read_buffer,
+                0,
+                (std::mem::size_of::<Particle>() as u32 * self.sim_params.particle_num) as _,
+            );
+        }
+        queue.submit(Some(read_encoder.finish()));
+
+        let read_buffer_slice = self.particle_read_buffer.slice(..);
+        let tree_staging_slice = self.tree_staging_buffer.slice(..);
+
+        let read_buffer_future = read_buffer_slice.map_async(wgpu::MapMode::Read);
+        let tree_staging_future = tree_staging_slice.map_async(wgpu::MapMode::Write);
+        device.poll(wgpu::Maintain::Wait);
+        pollster::block_on(read_buffer_future).unwrap();
+        pollster::block_on(tree_staging_future).unwrap();
+
+        let read_buffer_mapped = read_buffer_slice.get_mapped_range();
+        let mut tree_staging_mapped = tree_staging_slice.get_mapped_range_mut();
+
+        let particle_read_data: &[Particle] = bytemuck::cast_slice(&read_buffer_mapped);
+        let tree_staging_data: &mut [Octant] = bytemuck::cast_slice_mut(&mut tree_staging_mapped);
+
+        self.build_tree(particle_read_data, tree_staging_data);
+
+        drop(read_buffer_mapped);
+        self.particle_read_buffer.unmap();
+        drop(tree_staging_mapped);
+        self.tree_staging_buffer.unmap();
+
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("Tree Flush/Compute/Render Command"),
+        });
+
+        encoder.push_debug_group("flush tree staging buffer");
+        {
+            encoder.copy_buffer_to_buffer(
+                &self.tree_staging_buffer,
+                0,
+                &self.tree_buffer,
+                0,
+                (std::mem::size_of::<Octant>() as u32 * self.sim_params.particle_num * 4) as _,
+            );
+        }
+        encoder.pop_debug_group();
+
+        encoder.push_debug_group("n-body movement");
+        {
+            let mut cpass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor { label: None });
+            cpass.set_pipeline(&self.compute_pipeline);
+            cpass.set_bind_group(0, &self.particle_bind_groups[self.step_num % 2], &[]);
+            cpass.dispatch(self.work_group_count, 1, 1);
+        }
+        encoder.pop_debug_group();
+        self.step_num += 1;
+
+        encoder
     }
 
     fn dest_particle_slice(&self) -> wgpu::BufferSlice {
-        todo!()
+        self.particle_buffers[(self.step_num + 1) % 2].slice(..)
     }
 
     fn sim_params(&self) -> SimParams {
-        todo!()
+        self.sim_params.clone()
     }
+}
+
+impl TreeSim {
+    fn build_tree(&self, particle_data: &[Particle], tree_data: &mut [Octant]) {}
 }
 
 #[repr(C)]

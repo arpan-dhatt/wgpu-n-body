@@ -45,15 +45,7 @@ where
     }
 
     pub fn step(&mut self) {
-        let mut encoder = self
-            .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("Main Command"),
-            });
-        encoder.push_debug_group("compute n-body movement");
-        self.sim.encode(&mut encoder);
-        encoder.pop_debug_group();
-
+        let encoder = self.sim.encode(&self.device, &self.queue);
         self.queue.submit(Some(encoder.finish()));
 
         self.device.poll(wgpu::Maintain::Wait);
