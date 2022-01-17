@@ -1,4 +1,4 @@
-# GPU-Accelerates N-body Simulation
+# GPU-Accelerated N-body Simulation
 
 WIP cross-platform n-body simulation using classical relativity.
 
