@@ -1,4 +1,8 @@
-use wgpu_n_body::{inits, runners, sims, sims::NaiveSim};
+use wgpu_n_body::{
+    inits, runners,
+    sims::NaiveSim,
+    sims::{self, TreeSim},
+};
 
 use winit::{
     dpi::LogicalSize,
@@ -18,7 +22,7 @@ fn main() {
     window.focus_window();
 
     let sim_params = sims::SimParams {
-        particle_num: 10000,
+        particle_num: 20000,
         g: 0.000001,
         e: 0.0001,
         dt: 0.016,

@@ -26,7 +26,7 @@ pub fn uniform_init(sim_params: &SimParams) -> Vec<Particle> {
 }
 
 pub fn disc_init(sim_params: &SimParams) -> Vec<Particle> {
-    let coeff: f32 = 0.01;
+    let coeff: f32 = 0.025;
     let mut rng = rand::thread_rng();
     let unif = Uniform::new_inclusive(-1.0, 1.0);
     let mut initial_particles = Vec::with_capacity(sim_params.particle_num as usize);
@@ -35,7 +35,7 @@ pub fn disc_init(sim_params: &SimParams) -> Vec<Particle> {
         while pos.length() > 1.0 {
             pos = Vec3A::new(unif.sample(&mut rng), unif.sample(&mut rng), 0.0);
         }
-        let vel = coeff * 1.0 / (pos.length().sqrt() + 0.001) * pos.cross(Vec3A::Z).normalize();
+        let vel = coeff * 1.0 * (pos.length().sqrt() + 0.001) * pos.cross(Vec3A::Z).normalize();
         initial_particles.push(Particle {
             position: pos.to_array(),
             velocity: vel.to_array(),

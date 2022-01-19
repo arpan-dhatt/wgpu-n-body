@@ -1,5 +1,6 @@
-use std::borrow::Cow;
+use std::{borrow::Cow, cmp};
 
+use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use wgpu::util::DeviceExt;
 
 use super::{Particle, SimParams, Simulator};
@@ -265,12 +266,111 @@ impl Simulator for TreeSim {
 }
 
 impl TreeSim {
-    fn build_tree(&self, particle_data: &[Particle], tree_data: &mut [Octant]) {}
+    fn build_tree(&self, particle_data: &[Particle], tree_data: &mut [Octant]) {
+        let bound = particle_data
+            .par_iter()
+            .cloned()
+            .reduce(
+                || Particle {
+                    position: [1.0; 3],
+                    velocity: [0.0; 3],
+                    acceleration: [0.0; 3],
+                },
+                |a, b| Particle {
+                    position: [
+                        a.position[0].abs().max(b.position[0].abs()),
+                        a.position[1].abs().max(b.position[1].abs()),
+                        a.position[2].abs().max(b.position[2].abs()),
+                    ],
+                    velocity: [0.0; 3],
+                    acceleration: [0.0; 3],
+                },
+            )
+            .position;
+        let bound = bound[0].max(bound[1]).max(bound[2]);
+        let bound = [bound; 3];
+        tree_data[0] = Octant {
+            cog: particle_data[0].position,
+            mass: 1.0,
+            bodies: 1,
+            children: [0; 8],
+        };
+        let mut alloced_nodes = 1;
+        for particle in &particle_data[1..] {
+            let mut node_ix = 0;
+            let mut node_center = [0.0; 3];
+            let mut node_width = bound[0] * 2.0;
+            // find insertion point
+            while tree_data[node_ix].bodies > 1 {
+                tree_data[node_ix].bodies += 1;
+                tree_data[node_ix].mass += 1.0;
+                Self::balance_cog(&mut tree_data[node_ix].cog, tree_data[node_ix].mass, &particle.position);
+                let child_octant = Self::decide_octant(&node_center, &particle.position);
+                if tree_data[node_ix].children[child_octant] == 0 {
+                    // if child doesn't exist, needs to be created
+                    tree_data[alloced_nodes] = Octant {
+                        cog: [0.0; 3],
+                        mass: 0.0,
+                        bodies: 0,
+                        children: [0; 8],
+                    };
+                    node_ix = alloced_nodes;
+                    alloced_nodes += 1;
+                } else {
+                    // child exists, so continue iterating
+                    node_ix = tree_data[node_ix].children[child_octant] as usize;
+                    node_width /= 2.0;
+                    // shift node center
+                    node_center[0] += (( child_octant | 1 ) * 2 - 1) as f32 * node_width / 2.0;
+                    node_center[1] += (( child_octant | 2 ) * 2 - 1) as f32 * node_width / 2.0;
+                    node_center[2] += (( child_octant | 4 ) * 2 - 1) as f32 * node_width / 2.0;
+                }
+            }
+            // insert particle
+            if tree_data[node_ix].bodies == 0 {
+                // empty node just for this particle
+                tree_data[node_ix].cog = particle.position;
+                tree_data[node_ix].mass += 1.0;
+                tree_data[node_ix].bodies = 1;
+            } else {
+                // non-empty node (1 body, possibly requiring numerous subdivisions)
+                tree_data[node_ix].bodies += 1;
+                tree_data[node_ix].mass += 1.0;
+                Self::balance_cog(&mut tree_data[node_ix].cog, tree_data[node_ix].mass, &particle.position);
+
+            }
+        }
+    }
+
+    #[inline]
+    fn decide_octant(center: &[f32; 3], point: &[f32; 3]) -> usize {
+        ((point[0] > center[0]) as usize)
+            | (((point[1] > center[1]) as usize) << 1)
+            | (((point[2] > center[2]) as usize) << 2)
+    }
+
+    #[inline]
+    fn balance_cog(cog: &mut [f32; 3], curr_mass: f32, new_pos: &[f32; 3]) {
+        cog[0] += (new_pos[0] - cog[0]) * ( 1.0 / (curr_mass + 1.0));
+        cog[1] += (new_pos[1] - cog[1]) * ( 1.0 / (curr_mass + 1.0));
+        cog[2] += (new_pos[2] - cog[2]) * ( 1.0 / (curr_mass + 1.0));
+    }
 }
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 struct Octant {
+    /// Child Octant Positions:
+    /// ```
+    /// Front: -z   Back: +z
+    /// |---|---|   |---|---|
+    /// | 2 | 3 |   | 6 | 7 |
+    /// |---|---|   |---|---|
+    /// | 0 | 1 |   | 4 | 5 |
+    /// |---|---|   |---|---|
+    /// ```
     cog: [f32; 3],
     mass: f32,
+    bodies: u32,
+    children: [u32; 8],
 }

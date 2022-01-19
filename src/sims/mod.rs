@@ -2,6 +2,7 @@ mod naive;
 mod tree;
 
 pub use naive::NaiveSim;
+pub use tree::TreeSim;
 
 pub const PARTICLES_PER_GROUP: u32 = 64;
 
