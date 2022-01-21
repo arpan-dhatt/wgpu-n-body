@@ -22,12 +22,12 @@ fn main() {
     window.focus_window();
 
     let sim_params = sims::SimParams {
-        particle_num: 20000,
+        particle_num: 20,
         g: 0.000001,
         e: 0.0001,
         dt: 0.016,
     };
-    let mut state = pollster::block_on(runners::OnlineRenderer::<NaiveSim>::new(
+    let mut state = pollster::block_on(runners::OnlineRenderer::<TreeSim>::new(
         &window,
         sim_params,
         inits::disc_init,
@@ -46,6 +46,7 @@ fn main() {
                 // All other errors (Outdated, Timeout) should be resolved by the next frame
                 Err(e) => eprintln!("{:?}", e),
             }
+            std::process::exit(0);
         }
         Event::MainEventsCleared => {
             // RedrawRequested will only trigger once, unless we manually

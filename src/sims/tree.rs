@@ -289,6 +289,7 @@ impl TreeSim {
             .position;
         let bound = bound[0].max(bound[1]).max(bound[2]);
         let bound = [bound; 3];
+        // allocate root node
         tree_data[0] = Octant {
             cog: particle_data[0].position,
             mass: 1.0,
@@ -302,9 +303,14 @@ impl TreeSim {
             let mut node_width = bound[0] * 2.0;
             // find insertion point
             while tree_data[node_ix].bodies > 1 {
+                // bodies > 1 mean internal node
                 tree_data[node_ix].bodies += 1;
+                Self::balance_cog(
+                    &mut tree_data[node_ix].cog,
+                    tree_data[node_ix].mass,
+                    &particle.position,
+                );
                 tree_data[node_ix].mass += 1.0;
-                Self::balance_cog(&mut tree_data[node_ix].cog, tree_data[node_ix].mass, &particle.position);
                 let child_octant = Self::decide_octant(&node_center, &particle.position);
                 if tree_data[node_ix].children[child_octant] == 0 {
                     // if child doesn't exist, needs to be created
@@ -314,16 +320,14 @@ impl TreeSim {
                         bodies: 0,
                         children: [0; 8],
                     };
+                    tree_data[node_ix].children[child_octant] = alloced_nodes as u32;
                     node_ix = alloced_nodes;
                     alloced_nodes += 1;
                 } else {
                     // child exists, so continue iterating
                     node_ix = tree_data[node_ix].children[child_octant] as usize;
-                    node_width /= 2.0;
                     // shift node center
-                    node_center[0] += (( child_octant | 1 ) * 2 - 1) as f32 * node_width / 2.0;
-                    node_center[1] += (( child_octant | 2 ) * 2 - 1) as f32 * node_width / 2.0;
-                    node_center[2] += (( child_octant | 4 ) * 2 - 1) as f32 * node_width / 2.0;
+                    Self::shift_node_center(&mut node_center, &mut node_width, child_octant);
                 }
             }
             // insert particle
@@ -334,10 +338,55 @@ impl TreeSim {
                 tree_data[node_ix].bodies = 1;
             } else {
                 // non-empty node (1 body, possibly requiring numerous subdivisions)
+                // get already existant nodes
+                let particle_b = Particle {
+                    position: tree_data[node_ix].cog,
+                    velocity: [0.0; 3],
+                    acceleration: [0.0; 3],
+                };
+                // balance current node with new particle
+                Self::balance_cog(
+                    &mut tree_data[node_ix].cog,
+                    tree_data[node_ix].mass,
+                    &particle.position,
+                );
                 tree_data[node_ix].bodies += 1;
                 tree_data[node_ix].mass += 1.0;
-                Self::balance_cog(&mut tree_data[node_ix].cog, tree_data[node_ix].mass, &particle.position);
-
+                let mut a_oct = Self::decide_octant(&node_center, &particle.position);
+                let mut b_oct = Self::decide_octant(&node_center, &particle_b.position);
+                while a_oct == b_oct {
+                    // create new octant since it requires at least one more subdivision
+                    tree_data[alloced_nodes] = Octant {
+                        cog: tree_data[node_ix].cog.clone(),
+                        mass: tree_data[node_ix].mass,
+                        bodies: 2,
+                        children: [0; 8],
+                    };
+                    // set octant index to this new node
+                    tree_data[node_ix].children[a_oct] = alloced_nodes as u32;
+                    node_ix = alloced_nodes;
+                    alloced_nodes += 1;
+                    Self::shift_node_center(&mut node_center, &mut node_width, a_oct);
+                    a_oct = Self::decide_octant(&node_center, &particle.position);
+                    b_oct = Self::decide_octant(&node_center, &particle_b.position);
+                }
+                // create final nodes
+                tree_data[alloced_nodes] = Octant {
+                    cog: particle.position,
+                    mass: 1.0,
+                    bodies: 1,
+                    children: [0; 8],
+                };
+                tree_data[node_ix].children[a_oct] = alloced_nodes as u32;
+                alloced_nodes += 1;
+                tree_data[alloced_nodes] = Octant {
+                    cog: particle_b.position,
+                    mass: 1.0,
+                    bodies: 1,
+                    children: [0; 8],
+                };
+                tree_data[node_ix].children[b_oct] = alloced_nodes as u32;
+                alloced_nodes += 1;
             }
         }
     }
@@ -351,9 +400,17 @@ impl TreeSim {
 
     #[inline]
     fn balance_cog(cog: &mut [f32; 3], curr_mass: f32, new_pos: &[f32; 3]) {
-        cog[0] += (new_pos[0] - cog[0]) * ( 1.0 / (curr_mass + 1.0));
-        cog[1] += (new_pos[1] - cog[1]) * ( 1.0 / (curr_mass + 1.0));
-        cog[2] += (new_pos[2] - cog[2]) * ( 1.0 / (curr_mass + 1.0));
+        cog[0] += (new_pos[0] - cog[0]) * (1.0 / (curr_mass + 1.0));
+        cog[1] += (new_pos[1] - cog[1]) * (1.0 / (curr_mass + 1.0));
+        cog[2] += (new_pos[2] - cog[2]) * (1.0 / (curr_mass + 1.0));
+    }
+
+    #[inline]
+    fn shift_node_center(node_center: &mut [f32; 3], node_width: &mut f32, child_octant: usize) {
+        *node_width /= 2.0;
+        node_center[0] += ((child_octant & 1) as i32 * 2 - 1) as f32 * *node_width / 2.0;
+        node_center[1] += (((child_octant & 2) >> 1) as i32 * 2 - 1) as f32 * *node_width / 2.0;
+        node_center[2] += (((child_octant & 4) >> 2) as i32 * 2 - 1) as f32 * *node_width / 2.0;
     }
 }
 
