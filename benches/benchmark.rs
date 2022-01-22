@@ -2,15 +2,15 @@ use criterion::{criterion_group, criterion_main, Criterion, BenchmarkId, Through
 use wgpu_n_body::{
     inits,
     runners::OfflineHeadless,
-    sims::{NaiveSim, SimParams},
+    sims::{NaiveSim, SimParams, TreeSim},
 };
 
 fn criterion_benchmark(c: &mut Criterion) {
     static KB: usize = 8192;
-    let mut group = c.benchmark_group("naive");
-    for size in [KB, KB * 2, KB * 4, KB * 8].iter() {
-        group.throughput(Throughput::Elements(*size as u64));
-        group.bench_with_input(BenchmarkId::from_parameter(size), size, |b, &size| {
+    let mut naive_group = c.benchmark_group("naive");
+    for size in [KB, KB * 2, KB * 4, KB * 8, KB * 16].iter() {
+        naive_group.throughput(Throughput::Elements(*size as u64));
+        naive_group.bench_with_input(BenchmarkId::from_parameter(size), size, |b, &size| {
             let sim_params = SimParams {
                 particle_num: size as u32,
                 ..SimParams::default()
@@ -19,7 +19,21 @@ fn criterion_benchmark(c: &mut Criterion) {
             b.iter(|| runner.step());
         });
     }
-    group.finish()
+    naive_group.finish();
+
+    let mut tree_group = c.benchmark_group("tree");
+    for size in [KB, KB * 2, KB * 4, KB * 8, KB * 16].iter() {
+        tree_group.throughput(Throughput::Elements(*size as u64));
+        tree_group.bench_with_input(BenchmarkId::from_parameter(size), size, |b, &size| {
+            let sim_params = SimParams {
+                particle_num: size as u32,
+                ..SimParams::default()
+            };
+            let mut runner = pollster::block_on(OfflineHeadless::<TreeSim>::new(sim_params, inits::disc_init)).unwrap();
+            b.iter(|| runner.step());
+        });
+    }
+    tree_group.finish();
 }
 
 criterion_group!(benches, criterion_benchmark);
