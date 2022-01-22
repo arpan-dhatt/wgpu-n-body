@@ -22,8 +22,8 @@ fn main() {
     window.focus_window();
 
     let sim_params = sims::SimParams {
-        particle_num: 20,
-        g: 0.000001,
+        particle_num: 5000,
+        g: 0.00001,
         e: 0.0001,
         dt: 0.016,
     };
@@ -46,7 +46,7 @@ fn main() {
                 // All other errors (Outdated, Timeout) should be resolved by the next frame
                 Err(e) => eprintln!("{:?}", e),
             }
-            std::process::exit(0);
+            //std::process::exit(0);
         }
         Event::MainEventsCleared => {
             // RedrawRequested will only trigger once, unless we manually

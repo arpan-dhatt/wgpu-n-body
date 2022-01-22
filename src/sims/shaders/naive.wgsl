@@ -19,22 +19,7 @@ struct Particles {
 [[group(0), binding(1)]] var<storage, read> particlesSrc: Particles;
 [[group(0), binding(2)]] var<storage, read_write> particlesDst: Particles;
 
-[[stage(compute), workgroup_size(64)]]
-fn main([[builtin(global_invocation_id)]] global_invocation_id: vec3<u32>) {
-    let total = arrayLength(&particlesSrc.particles);
-    let index = global_invocation_id.x;
-    if (index >= total) {
-        return;
-    }
-
-    let _p = particlesSrc.particles[index];
-    var aPos = vec3<f32>(_p.px, _p.py, _p.pz);
-    var aVel = vec3<f32>(_p.vx, _p.vy, _p.vz);
-    var aAcc = vec3<f32>(_p.ax, _p.ay, _p.az);
-
-    aVel = aVel + aAcc * params.dt / 2.0;
-    aPos = aPos + aVel * params.dt;
-
+fn getAcc(aPos: vec3<f32>, index: u32, total: u32) -> vec3<f32> {
     var acc = vec3<f32>(0.0, 0.0, 0.0);
     var i: u32 = 0u;
     loop {
@@ -58,6 +43,25 @@ fn main([[builtin(global_invocation_id)]] global_invocation_id: vec3<u32>) {
             i = i + 1u;
         }
     }
+    return acc;
+}
+
+[[stage(compute), workgroup_size(64)]]
+fn main([[builtin(global_invocation_id)]] global_invocation_id: vec3<u32>) {
+    let total = arrayLength(&particlesSrc.particles);
+    let index = global_invocation_id.x;
+    if (index >= total) {
+        return;
+    }
+
+    let _p = particlesSrc.particles[index];
+    var aPos = vec3<f32>(_p.px, _p.py, _p.pz);
+    var aVel = vec3<f32>(_p.vx, _p.vy, _p.vz);
+    var aAcc = vec3<f32>(_p.ax, _p.ay, _p.az);
+
+    aVel = aVel + aAcc * params.dt / 2.0;
+    aPos = aPos + aVel * params.dt;
+    let acc = getAcc(aPos, index, total);
     aVel = aVel + acc * params.dt / 2.0;
 
     particlesDst.particles[index] = Particle(aPos.x, aPos.y, aPos.z, aVel.x, aVel.y, aVel.z, acc.x, acc.y, acc.z);

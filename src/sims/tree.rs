@@ -7,6 +7,8 @@ use super::{Particle, SimParams, Simulator};
 
 pub struct TreeSim {
     sim_params: SimParams,
+    tree_sim_params: TreeSimParams,
+    tree_sim_params_buffer: wgpu::Buffer,
     particle_bind_groups: Vec<wgpu::BindGroup>,
     particle_buffers: Vec<wgpu::Buffer>,
     particle_read_buffer: wgpu::Buffer,
@@ -26,6 +28,16 @@ impl Simulator for TreeSim {
         let sim_params_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Sim Params Buffer"),
             contents: bytemuck::cast_slice(&[sim_params]),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        });
+
+        let tree_sim_params = TreeSimParams {
+            theta: 0.5,
+            root_width: 2.0,
+        };
+        let tree_sim_params_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Tree Sim Specific Params"),
+            contents: bytemuck::cast_slice(&[tree_sim_params]),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
 
@@ -54,6 +66,18 @@ impl Simulator for TreeSim {
                         binding: 1,
                         visibility: wgpu::ShaderStages::COMPUTE,
                         ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: wgpu::BufferSize::new(
+                                std::mem::size_of::<TreeSimParams>() as _,
+                            ),
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 2,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
                             ty: wgpu::BufferBindingType::Storage { read_only: true },
                             has_dynamic_offset: false,
                             min_binding_size: wgpu::BufferSize::new(
@@ -64,7 +88,7 @@ impl Simulator for TreeSim {
                         count: None,
                     },
                     wgpu::BindGroupLayoutEntry {
-                        binding: 2,
+                        binding: 3,
                         visibility: wgpu::ShaderStages::COMPUTE,
                         ty: wgpu::BindingType::Buffer {
                             ty: wgpu::BufferBindingType::Storage { read_only: true },
@@ -79,7 +103,7 @@ impl Simulator for TreeSim {
                         count: None,
                     },
                     wgpu::BindGroupLayoutEntry {
-                        binding: 3,
+                        binding: 4,
                         visibility: wgpu::ShaderStages::COMPUTE,
                         ty: wgpu::BindingType::Buffer {
                             ty: wgpu::BufferBindingType::Storage { read_only: false },
@@ -152,14 +176,18 @@ impl Simulator for TreeSim {
                     },
                     wgpu::BindGroupEntry {
                         binding: 1,
-                        resource: particle_buffers[i].as_entire_binding(),
+                        resource: tree_sim_params_buffer.as_entire_binding(),
                     },
                     wgpu::BindGroupEntry {
                         binding: 2,
-                        resource: tree_buffer.as_entire_binding(),
+                        resource: particle_buffers[i].as_entire_binding(),
                     },
                     wgpu::BindGroupEntry {
                         binding: 3,
+                        resource: tree_buffer.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 4,
                         resource: particle_buffers[(i + 1) % 2].as_entire_binding(),
                     },
                 ],
@@ -178,6 +206,8 @@ impl Simulator for TreeSim {
 
         Ok(Self {
             sim_params,
+            tree_sim_params,
+            tree_sim_params_buffer,
             particle_bind_groups,
             particle_buffers,
             particle_read_buffer,
@@ -219,7 +249,12 @@ impl Simulator for TreeSim {
         let particle_read_data: &[Particle] = bytemuck::cast_slice(&read_buffer_mapped);
         let tree_staging_data: &mut [Octant] = bytemuck::cast_slice_mut(&mut tree_staging_mapped);
 
-        self.build_tree(particle_read_data, tree_staging_data);
+        self.build_tree(
+            particle_read_data,
+            tree_staging_data,
+            &queue,
+            self.tree_sim_params.clone(),
+        );
 
         drop(read_buffer_mapped);
         self.particle_read_buffer.unmap();
@@ -266,7 +301,13 @@ impl Simulator for TreeSim {
 }
 
 impl TreeSim {
-    fn build_tree(&self, particle_data: &[Particle], tree_data: &mut [Octant]) {
+    fn build_tree(
+        &self,
+        particle_data: &[Particle],
+        tree_data: &mut [Octant],
+        queue: &wgpu::Queue,
+        mut tree_sim_params: TreeSimParams,
+    ) {
         let bound = particle_data
             .par_iter()
             .cloned()
@@ -288,6 +329,16 @@ impl TreeSim {
             )
             .position;
         let bound = bound[0].max(bound[1]).max(bound[2]);
+        // write new root bounds data for gpu force calculation
+        tree_sim_params = TreeSimParams {
+            theta: tree_sim_params.theta,
+            root_width: bound * 2.0,
+        };
+        queue.write_buffer(
+            &self.tree_sim_params_buffer,
+            0,
+            bytemuck::cast_slice(&[tree_sim_params]),
+        );
         let bound = [bound; 3];
         // allocate root node
         tree_data[0] = Octant {
@@ -430,4 +481,11 @@ struct Octant {
     mass: f32,
     bodies: u32,
     children: [u32; 8],
+}
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+struct TreeSimParams {
+    theta: f32,
+    root_width: f32,
 }
