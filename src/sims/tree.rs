@@ -249,7 +249,7 @@ impl Simulator for TreeSim {
         let particle_read_data: &[Particle] = bytemuck::cast_slice(&read_buffer_mapped);
         let tree_staging_data: &mut [Octant] = bytemuck::cast_slice_mut(&mut tree_staging_mapped);
 
-        self.build_tree(
+        let octree_nodes = self.build_tree(
             particle_read_data,
             tree_staging_data,
             &queue,
@@ -272,7 +272,7 @@ impl Simulator for TreeSim {
                 0,
                 &self.tree_buffer,
                 0,
-                (std::mem::size_of::<Octant>() as u32 * self.sim_params.particle_num * 4) as _,
+                (std::mem::size_of::<Octant>() as u32 * octree_nodes as u32) as _,
             );
         }
         encoder.pop_debug_group();
@@ -307,7 +307,7 @@ impl TreeSim {
         tree_data: &mut [Octant],
         queue: &wgpu::Queue,
         mut tree_sim_params: TreeSimParams,
-    ) {
+    ) -> usize {
         let bound = particle_data
             .par_iter()
             .cloned()
@@ -440,6 +440,7 @@ impl TreeSim {
                 alloced_nodes += 1;
             }
         }
+        alloced_nodes
     }
 
     #[inline]
