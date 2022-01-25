@@ -17,6 +17,7 @@ bytemuck = { version = "1.4", features = [ "derive" ] }
 anyhow = "1.0"
 rand = "0.8.4"
 rayon = "1.5.1"
+parking_lot = "0.11"
 
 [dev-dependencies]
 criterion = "0.3"

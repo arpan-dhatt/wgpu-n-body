@@ -1,4 +1,4 @@
-use std::{borrow::Cow, cmp};
+use std::{borrow::Cow, cmp, time::Instant};
 
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use wgpu::util::DeviceExt;
@@ -220,6 +220,7 @@ impl Simulator for TreeSim {
     }
 
     fn encode(&mut self, device: &wgpu::Device, queue: &wgpu::Queue) -> wgpu::CommandEncoder {
+        let mut now = Instant::now();
         let mut read_encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("Particle Data Reader Command"),
         });
@@ -233,6 +234,8 @@ impl Simulator for TreeSim {
             );
         }
         queue.submit(Some(read_encoder.finish()));
+        println!("Particle Data Reader Command Submit: {} µs", now.elapsed().as_micros());
+        now = Instant::now();
 
         let read_buffer_slice = self.particle_read_buffer.slice(..);
         let tree_staging_slice = self.tree_staging_buffer.slice(..);
@@ -242,6 +245,8 @@ impl Simulator for TreeSim {
         device.poll(wgpu::Maintain::Wait);
         pollster::block_on(read_buffer_future).unwrap();
         pollster::block_on(tree_staging_future).unwrap();
+        println!("Mapped Particle Read and Tree Staging Buffers: {} µs", now.elapsed().as_micros());
+        now = Instant::now();
 
         let read_buffer_mapped = read_buffer_slice.get_mapped_range();
         let mut tree_staging_mapped = tree_staging_slice.get_mapped_range_mut();
@@ -255,11 +260,14 @@ impl Simulator for TreeSim {
             &queue,
             self.tree_sim_params.clone(),
         );
+        println!("Constructed Tree: {} µs", now.elapsed().as_micros());
+        now = Instant::now();
 
         drop(read_buffer_mapped);
         self.particle_read_buffer.unmap();
         drop(tree_staging_mapped);
         self.tree_staging_buffer.unmap();
+        println!("Unmapped buffers: {} µs", now.elapsed().as_micros());
 
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("Tree Flush/Compute/Render Command"),
@@ -308,6 +316,7 @@ impl TreeSim {
         queue: &wgpu::Queue,
         mut tree_sim_params: TreeSimParams,
     ) -> usize {
+        let mut now = Instant::now();
         let bound = particle_data
             .par_iter()
             .cloned()
@@ -328,6 +337,8 @@ impl TreeSim {
                 },
             )
             .position;
+        println!("  Calculated bounds: {} µs", now.elapsed().as_micros());
+        now = Instant::now();
         let bound = bound[0].max(bound[1]).max(bound[2]);
         // write new root bounds data for gpu force calculation
         tree_sim_params = TreeSimParams {
@@ -347,12 +358,17 @@ impl TreeSim {
             bodies: 1,
             children: [0; 8],
         };
+        let mut fip_time = 0.0;
+        let mut fip_loop = 0;
+        let mut sub_time = 0.0;
+        let mut sub_loop = 0;
         let mut alloced_nodes = 1;
         for particle in &particle_data[1..] {
             let mut node_ix = 0;
             let mut node_center = [0.0; 3];
             let mut node_width = bound[0] * 2.0;
             // find insertion point
+            let inner_now = Instant::now();
             while tree_data[node_ix].bodies > 1 {
                 // bodies > 1 mean internal node
                 tree_data[node_ix].bodies += 1;
@@ -380,7 +396,10 @@ impl TreeSim {
                     // shift node center
                     Self::shift_node_center(&mut node_center, &mut node_width, child_octant);
                 }
+                fip_loop += 1;
             }
+            fip_time += inner_now.elapsed().as_nanos() as f64;
+            let inner_now = Instant::now();
             // insert particle
             if tree_data[node_ix].bodies == 0 {
                 // empty node just for this particle
@@ -439,9 +458,17 @@ impl TreeSim {
                 tree_data[node_ix].children[b_oct] = alloced_nodes as u32;
                 alloced_nodes += 1;
             }
+            sub_loop += 1;
+            sub_time += inner_now.elapsed().as_nanos() as f64;
         }
+        let const_tree = now.elapsed().as_micros() as f64;
+        println!("  Constructing Tree: {} µs", const_tree);
+        println!("    Finding Insertion Point ({}): {:.2}%", fip_loop, fip_time / 1000.0 / const_tree * 100.0);
+        println!("    Subdividing ({}): {:.2}%", sub_loop, sub_time / 1000.0 / const_tree * 100.0);
         alloced_nodes
     }
+
+
 
     #[inline]
     fn decide_octant(center: &[f32; 3], point: &[f32; 3]) -> usize {
