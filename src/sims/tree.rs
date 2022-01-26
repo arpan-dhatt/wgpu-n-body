@@ -1,4 +1,4 @@
-use std::borrow::Cow;
+use std::{borrow::Cow, collections::VecDeque};
 
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use wgpu::util::DeviceExt;
@@ -300,6 +300,14 @@ impl Simulator for TreeSim {
     }
 }
 
+#[derive(Clone, Debug)]
+struct Partition {
+    center: [f32; 3],
+    width: f32,
+    octant_ix: usize,
+    particles_ix: Option<Vec<usize>>,
+}
+
 impl TreeSim {
     fn build_tree(
         &self,
@@ -340,110 +348,81 @@ impl TreeSim {
             bytemuck::cast_slice(&[tree_sim_params]),
         );
         let bound = [bound; 3];
-        // allocate root node
+        let mut partitions: VecDeque<Partition> = VecDeque::new();
+        // create root node
         tree_data[0] = Octant {
-            cog: particle_data[0].position,
-            mass: 1.0,
-            bodies: 1,
+            cog: [0.0; 3],
+            mass: 0.0,
+            bodies: 0,
             children: [0; 8],
         };
         let mut alloced_nodes = 1;
-        for particle in &particle_data[1..] {
-            let mut node_ix = 0;
-            let mut node_center = [0.0; 3];
-            let mut node_width = bound[0] * 2.0;
-            // find insertion point
-            while tree_data[node_ix].bodies > 1 {
-                // bodies > 1 mean internal node
-                tree_data[node_ix].bodies += 1;
-                Self::balance_cog(
-                    &mut tree_data[node_ix].cog,
-                    tree_data[node_ix].mass,
-                    &particle.position,
-                );
-                tree_data[node_ix].mass += 1.0;
-                let child_octant = Self::decide_octant(&node_center, &particle.position);
-                if tree_data[node_ix].children[child_octant] == 0 {
-                    // if child doesn't exist, needs to be created
-                    tree_data[alloced_nodes] = Octant {
-                        cog: [0.0; 3],
-                        mass: 0.0,
-                        bodies: 0,
-                        children: [0; 8],
-                    };
-                    tree_data[node_ix].children[child_octant] = alloced_nodes as u32;
-                    node_ix = alloced_nodes;
-                    alloced_nodes += 1;
+        // create root partition (all particles)
+        partitions.push_back(Partition {
+            center: [0.0; 3],
+            width: bound[0] * 2.0,
+            octant_ix: 0,
+            particles_ix: Some((0..particle_data.len()).collect()),
+        });
+        // while there are partitions to process
+        while let Some(part) = partitions.pop_front() {
+            // create all possible child partitions (not always added to queue)
+            let mut child_partitions: Vec<Partition> = (0..8).map(|ix| Partition {
+                center: Self::shift_node_center(&part.center, part.width, ix),
+                width: part.width / 2.0,
+                octant_ix: 0,
+                particles_ix: None,
+            }).collect();
+            // partition's referred octant
+            let mut octant = tree_data[part.octant_ix];
+            // calculate octant data and particle child subdivisions
+            for particle_ix in part.particles_ix.as_ref().unwrap() {
+                let p = particle_data[*particle_ix];
+                octant.cog[0] += p.position[0];
+                octant.cog[1] += p.position[1];
+                octant.cog[2] += p.position[2];
+                octant.mass += 1.0;
+                let child_ix = Self::decide_octant(&part.center, &p.position);
+                if let Some(ref mut particles_ix) = child_partitions[child_ix].particles_ix {
+                    // child particles list already exists
+                    particles_ix.push(*particle_ix);
                 } else {
-                    // child exists, so continue iterating
-                    node_ix = tree_data[node_ix].children[child_octant] as usize;
-                    // shift node center
-                    Self::shift_node_center(&mut node_center, &mut node_width, child_octant);
+                    // needs to be created
+                    child_partitions[child_ix].particles_ix = Some(vec![*particle_ix]);
                 }
             }
-            // insert particle
-            if tree_data[node_ix].bodies == 0 {
-                // empty node just for this particle
-                tree_data[node_ix].cog = particle.position;
-                tree_data[node_ix].mass += 1.0;
-                tree_data[node_ix].bodies = 1;
-            } else {
-                // non-empty node (1 body, possibly requiring numerous subdivisions)
-                // get already existant nodes
-                let particle_b = Particle {
-                    position: tree_data[node_ix].cog,
-                    velocity: [0.0; 3],
-                    acceleration: [0.0; 3],
+            octant.bodies += part.particles_ix.unwrap().len() as u32;
+            octant.cog[0] /= octant.mass;
+            octant.cog[1] /= octant.mass;
+            octant.cog[2] /= octant.mass;
+            tree_data[part.octant_ix] = octant;
+            // only add new partitions if non-leaf node
+            for (i, mut child_part) in child_partitions.into_iter().enumerate() {
+                let part_count = child_part.particles_ix.as_ref().map(|v| v.len()).unwrap_or(0);
+                if part_count == 0 { continue; }
+                tree_data[alloced_nodes] = Octant {
+                    cog: [0.0; 3],
+                    mass: 0.0,
+                    bodies: 0,
+                    children: [0; 8],
                 };
-                // balance current node with new particle
-                Self::balance_cog(
-                    &mut tree_data[node_ix].cog,
-                    tree_data[node_ix].mass,
-                    &particle.position,
-                );
-                tree_data[node_ix].bodies += 1;
-                tree_data[node_ix].mass += 1.0;
-                let mut a_oct = Self::decide_octant(&node_center, &particle.position);
-                let mut b_oct = Self::decide_octant(&node_center, &particle_b.position);
-                while a_oct == b_oct {
-                    // create new octant since it requires at least one more subdivision
-                    tree_data[alloced_nodes] = Octant {
-                        cog: tree_data[node_ix].cog.clone(),
-                        mass: tree_data[node_ix].mass,
-                        bodies: 2,
-                        children: [0; 8],
-                    };
-                    // set octant index to this new node
-                    tree_data[node_ix].children[a_oct] = alloced_nodes as u32;
-                    node_ix = alloced_nodes;
-                    alloced_nodes += 1;
-                    Self::shift_node_center(&mut node_center, &mut node_width, a_oct);
-                    a_oct = Self::decide_octant(&node_center, &particle.position);
-                    b_oct = Self::decide_octant(&node_center, &particle_b.position);
+                child_part.octant_ix = alloced_nodes;
+                if part_count > 1 {
+                    // non-leaf node
+                    tree_data[part.octant_ix].children[i] = alloced_nodes as u32;
+                    partitions.push_back(child_part);
+                } else if part_count == 1 {
+                    // leaf node (complete octant processing and finish)
+                    tree_data[alloced_nodes].cog = particle_data[child_part.particles_ix.unwrap()[0]].position;
+                    tree_data[alloced_nodes].mass = 1.0;
+                    tree_data[alloced_nodes].bodies = 1;
                 }
-                // create final nodes
-                tree_data[alloced_nodes] = Octant {
-                    cog: particle.position,
-                    mass: 1.0,
-                    bodies: 1,
-                    children: [0; 8],
-                };
-                tree_data[node_ix].children[a_oct] = alloced_nodes as u32;
                 alloced_nodes += 1;
-                tree_data[alloced_nodes] = Octant {
-                    cog: particle_b.position,
-                    mass: 1.0,
-                    bodies: 1,
-                    children: [0; 8],
-                };
-                tree_data[node_ix].children[b_oct] = alloced_nodes as u32;
-                alloced_nodes += 1;
+                // zero-node does nothing
             }
         }
         alloced_nodes
     }
-
-
 
     #[inline]
     fn decide_octant(center: &[f32; 3], point: &[f32; 3]) -> usize {
@@ -460,11 +439,12 @@ impl TreeSim {
     }
 
     #[inline]
-    fn shift_node_center(node_center: &mut [f32; 3], node_width: &mut f32, child_octant: usize) {
-        *node_width /= 2.0;
-        node_center[0] += ((child_octant & 1) as i32 * 2 - 1) as f32 * *node_width / 2.0;
-        node_center[1] += (((child_octant & 2) >> 1) as i32 * 2 - 1) as f32 * *node_width / 2.0;
-        node_center[2] += (((child_octant & 4) >> 2) as i32 * 2 - 1) as f32 * *node_width / 2.0;
+    fn shift_node_center(node_center: &[f32; 3], node_width: f32, child_octant: usize) -> [f32; 3] {
+        [
+         node_center[0] + ((child_octant & 1) as i32 * 2 - 1) as f32 * node_width / 4.0,
+         node_center[1] + (((child_octant & 2) >> 1) as i32 * 2 - 1) as f32 * node_width / 4.0,
+         node_center[2] + (((child_octant & 4) >> 2) as i32 * 2 - 1) as f32 * node_width / 4.0
+        ]
     }
 }
 
