@@ -17,6 +17,7 @@ pub struct TreeSim {
     compute_pipeline: wgpu::ComputePipeline,
     work_group_count: u32,
     step_num: usize,
+    alloc_arena: bumpalo::Bump
 }
 
 impl Simulator for TreeSim {
@@ -216,6 +217,7 @@ impl Simulator for TreeSim {
             compute_pipeline,
             work_group_count,
             step_num: 0,
+            alloc_arena: bumpalo::Bump::new()
         })
     }
 
@@ -300,12 +302,14 @@ impl Simulator for TreeSim {
     }
 }
 
+type BVec<'a, T> = bumpalo::collections::Vec<'a, T>;
+
 #[derive(Clone, Debug)]
-struct Partition {
+struct Partition<'a> {
     center: [f32; 3],
     width: f32,
     octant_ix: usize,
-    particles_ix: Option<Vec<usize>>,
+    particles_ix: Option<BVec<'a, usize>>,
 }
 
 impl TreeSim {
@@ -362,7 +366,7 @@ impl TreeSim {
             center: [0.0; 3],
             width: bound[0] * 2.0,
             octant_ix: 0,
-            particles_ix: Some((0..particle_data.len()).collect()),
+            particles_ix: Some(BVec::from_iter_in(0..particle_data.len(), &self.alloc_arena)),
         });
         // while there are partitions to process
         while let Some(part) = partitions.pop_front() {
@@ -388,7 +392,7 @@ impl TreeSim {
                     particles_ix.push(*particle_ix);
                 } else {
                     // needs to be created
-                    child_partitions[child_ix].particles_ix = Some(vec![*particle_ix]);
+                    child_partitions[child_ix].particles_ix = Some(BVec::from_iter_in(Some(*particle_ix), &self.alloc_arena));
                 }
             }
             octant.bodies += part.particles_ix.unwrap().len() as u32;
