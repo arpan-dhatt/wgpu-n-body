@@ -249,12 +249,12 @@ impl Simulator for TreeSim {
         let particle_read_data: &[Particle] = bytemuck::cast_slice(&read_buffer_mapped);
         let tree_staging_data: &mut [Octant] = bytemuck::cast_slice_mut(&mut tree_staging_mapped);
 
-        let octree_nodes = self.build_tree(
+        let octree_nodes = unsafe { self.build_tree(
             particle_read_data,
             tree_staging_data,
             &queue,
             self.tree_sim_params.clone(),
-        );
+        ) };
 
         drop(read_buffer_mapped);
         self.particle_read_buffer.unmap();
@@ -301,7 +301,7 @@ impl Simulator for TreeSim {
 }
 
 impl TreeSim {
-    fn build_tree(
+    unsafe fn build_tree(
         &self,
         particle_data: &[Particle],
         tree_data: &mut [Octant],
@@ -341,8 +341,8 @@ impl TreeSim {
         );
         let bound = [bound; 3];
         // allocate root node
-        tree_data[0] = Octant {
-            cog: particle_data[0].position,
+        *tree_data.get_unchecked_mut(0) = Octant {
+            cog: particle_data.get_unchecked(0).position,
             mass: 1.0,
             bodies: 1,
             children: [0; 8],
@@ -353,36 +353,37 @@ impl TreeSim {
             let mut node_center = [0.0; 3];
             let mut node_width = bound[0] * 2.0;
             // find insertion point
-            while tree_data[node_ix].bodies > 1 {
+            while tree_data.get_unchecked(node_ix).bodies > 1 {
                 // bodies > 1 mean internal node
-                tree_data[node_ix].bodies += 1;
+                tree_data.get_unchecked_mut(node_ix).bodies += 1;
+                let temp_mass = tree_data.get_unchecked(node_ix).mass;
                 Self::balance_cog(
-                    &mut tree_data[node_ix].cog,
-                    tree_data[node_ix].mass,
+                    &mut tree_data.get_unchecked_mut(node_ix).cog,
+                    temp_mass,
                     &particle.position,
                 );
-                tree_data[node_ix].mass += 1.0;
+                tree_data.get_unchecked_mut(node_ix).mass += 1.0;
                 let child_octant = Self::decide_octant(&node_center, &particle.position);
-                if tree_data[node_ix].children[child_octant] == 0 {
+                if *tree_data.get_unchecked(node_ix).children.get_unchecked(child_octant) == 0 {
                     // if child doesn't exist, needs to be created
-                    tree_data[alloced_nodes] = Octant {
+                    *tree_data.get_unchecked_mut(alloced_nodes) = Octant {
                         cog: [0.0; 3],
                         mass: 0.0,
                         bodies: 0,
                         children: [0; 8],
                     };
-                    tree_data[node_ix].children[child_octant] = alloced_nodes as u32;
+                    *tree_data.get_unchecked_mut(node_ix).children.get_unchecked_mut(child_octant) = alloced_nodes as u32;
                     node_ix = alloced_nodes;
                     alloced_nodes += 1;
                 } else {
                     // child exists, so continue iterating
-                    node_ix = tree_data[node_ix].children[child_octant] as usize;
+                    node_ix = *tree_data.get_unchecked(node_ix).children.get_unchecked(child_octant) as usize;
                     // shift node center
                     Self::shift_node_center(&mut node_center, &mut node_width, child_octant);
                 }
             }
             // insert particle
-            if tree_data[node_ix].bodies == 0 {
+            if tree_data.get_unchecked(node_ix).bodies == 0 {
                 // empty node just for this particle
                 tree_data[node_ix].cog = particle.position;
                 tree_data[node_ix].mass += 1.0;
