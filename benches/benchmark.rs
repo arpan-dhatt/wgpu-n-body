@@ -5,6 +5,9 @@ use wgpu_n_body::{
     sims::{NaiveSim, SimParams, TreeSim},
 };
 
+#[global_allocator]
+static ALLOC: jemallocator::Jemalloc = jemallocator::Jemalloc;
+
 fn criterion_benchmark(c: &mut Criterion) {
     static KB: usize = 8192;
     let mut naive_group = c.benchmark_group("naive");

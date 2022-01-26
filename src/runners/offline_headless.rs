@@ -32,7 +32,10 @@ where
                 &wgpu::DeviceDescriptor {
                     label: None,
                     features: wgpu::Features::empty(),
-                    limits: wgpu::Limits::default(),
+                    limits: wgpu::Limits {
+                        max_storage_buffer_binding_size: 1073741824,
+                        ..wgpu::Limits::default()
+                    }
                 },
                 None,
             )
