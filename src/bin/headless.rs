@@ -5,7 +5,7 @@ use wgpu_n_body::{runners::OfflineHeadless, inits, sims::{NaiveSim, SimParams, T
 #[global_allocator]
 static ALLOC: jemallocator::Jemalloc = jemallocator::Jemalloc;
 
-const STEPS: usize = 1;
+const STEPS: usize = 10;
 
 fn main() {
     let sim_params = SimParams {

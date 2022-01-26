@@ -1903,6 +1903,7 @@ name = "wgpu-n-body"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "bumpalo",
  "bytemuck",
  "criterion",
  "env_logger",

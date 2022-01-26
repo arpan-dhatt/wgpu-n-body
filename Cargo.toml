@@ -19,6 +19,7 @@ rand = "0.8.4"
 rayon = "1.5.1"
 parking_lot = "0.11"
 jemallocator = "0.3.2"
+bumpalo = { version = "3.9.1", features = [ "collections" ] }
 
 [dev-dependencies]
 criterion = "0.3"
