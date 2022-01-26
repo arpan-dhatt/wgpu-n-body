@@ -11,6 +11,9 @@ use winit::{
     window::WindowBuilder,
 };
 
+#[global_allocator]
+static ALLOC: jemallocator::Jemalloc = jemallocator::Jemalloc;
+
 fn main() {
     env_logger::init();
     let event_loop = EventLoop::new();
@@ -22,7 +25,7 @@ fn main() {
     window.focus_window();
 
     let sim_params = sims::SimParams {
-        particle_num: 20000,
+        particle_num: 100000,
         g: 0.00001,
         e: 0.0001,
         dt: 0.016,
