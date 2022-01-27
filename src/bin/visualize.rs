@@ -25,7 +25,7 @@ fn main() {
     window.focus_window();
 
     let sim_params = sims::SimParams {
-        particle_num: 100,
+        particle_num: 100000,
         g: 0.00001,
         e: 0.0001,
         dt: 0.016,
