@@ -9,7 +9,7 @@ const STEPS: usize = 10;
 
 fn main() {
     let sim_params = SimParams {
-        particle_num: 1000000,
+        particle_num: 4000000,
         g: 0.000001,
         e: 0.0001,
         dt: 0.016,

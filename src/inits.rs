@@ -26,7 +26,7 @@ pub fn uniform_init(sim_params: &SimParams) -> Vec<Particle> {
 }
 
 pub fn disc_init(sim_params: &SimParams) -> Vec<Particle> {
-    let coeff: f32 = 0.025;
+    let coeff: f32 = 0.1;
     let mut rng = rand::thread_rng();
     let unif = Uniform::new_inclusive(-1.0, 1.0);
     let mut initial_particles = Vec::with_capacity(sim_params.particle_num as usize);
