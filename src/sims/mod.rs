@@ -71,4 +71,8 @@ pub trait Simulator {
     fn encode(&mut self, device: &wgpu::Device, queue: &wgpu::Queue) -> wgpu::CommandEncoder;
     fn dest_particle_slice(&self) -> wgpu::BufferSlice;
     fn sim_params(&self) -> SimParams;
+
+    /// Optional Method that can be run while the GPU is executing code, helpful for resource
+    /// cleanup
+    fn cleanup(&mut self) {}
 }

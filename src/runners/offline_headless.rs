@@ -51,6 +51,7 @@ where
         let encoder = self.sim.encode(&self.device, &self.queue);
         self.queue.submit(Some(encoder.finish()));
 
+        self.sim.cleanup();
         self.device.poll(wgpu::Maintain::Wait);
     }
 }

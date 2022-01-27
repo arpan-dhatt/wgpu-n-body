@@ -162,6 +162,7 @@ where
 
         self.queue.submit(Some(encoder.finish()));
         output.present();
+        self.sim.cleanup();
 
         Ok(())
     }

@@ -300,6 +300,10 @@ impl Simulator for TreeSim {
     fn sim_params(&self) -> SimParams {
         self.sim_params.clone()
     }
+
+    fn cleanup(&mut self) {
+        self.alloc_arena.reset();
+    }
 }
 
 type BVec<'a, T> = bumpalo::collections::Vec<'a, T>;
