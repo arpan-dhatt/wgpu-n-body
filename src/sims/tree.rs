@@ -1,4 +1,4 @@
-use std::{borrow::Cow, collections::VecDeque};
+use std::borrow::Cow;
 
 use rayon::prelude::*;
 use wgpu::util::DeviceExt;
@@ -19,7 +19,6 @@ pub struct TreeSim {
     compute_pipeline: wgpu::ComputePipeline,
     work_group_count: u32,
     step_num: usize,
-    alloc_arena: bumpalo_herd::Herd,
 }
 
 impl Simulator for TreeSim {
@@ -219,7 +218,6 @@ impl Simulator for TreeSim {
             compute_pipeline,
             work_group_count,
             step_num: 0,
-            alloc_arena: bumpalo_herd::Herd::new(),
         })
     }
 
@@ -302,10 +300,6 @@ impl Simulator for TreeSim {
     fn sim_params(&self) -> SimParams {
         self.sim_params.clone()
     }
-
-    fn cleanup(&mut self) {
-        self.alloc_arena.reset();
-    }
 }
 
 type BVec<'a, T> = bumpalo::collections::Vec<'a, T>;
@@ -315,7 +309,7 @@ struct Partition<'a> {
     center: [f32; 3],
     width: f32,
     octant_ix: Option<Reserve<'a>>,
-    particles_ix: Option<BVec<'a, usize>>,
+    particles_ix: Option<Vec<usize>>,
 }
 
 impl TreeSim {
@@ -358,8 +352,6 @@ impl TreeSim {
             bytemuck::cast_slice(&[tree_sim_params]),
         );
         let bound = [bound; 3];
-        let herd_member = self.alloc_arena.get();
-        let member_bump = herd_member.as_bump();
         let (tx, rx) = crossbeam_channel::unbounded();
         // initialize slice allocator
         let mut tree_alloc = SliceAlloc::wrap(tree_data);
@@ -369,11 +361,9 @@ impl TreeSim {
             center: [0.0; 3],
             width: bound[0] * 2.0,
             octant_ix: Some(root_ix),
-            particles_ix: Some(BVec::from_iter_in(
-                0..particle_data.len(),
-                member_bump,
-            )),
-        }).expect("Failed to send Partition to MPMC Channel");
+            particles_ix: Some(Vec::from_iter(0..particle_data.len())),
+        })
+        .expect("Failed to send Partition to MPMC Channel");
         // while there are partitions to process
         while let Ok(part) = rx.try_recv() {
             // create all possible child partitions (not always added to queue)
@@ -400,8 +390,7 @@ impl TreeSim {
                     particles_ix.push(*particle_ix);
                 } else {
                     // needs to be created
-                    child_partitions[child_ix].particles_ix =
-                        Some(BVec::from_iter_in(Some(*particle_ix), member_bump));
+                    child_partitions[child_ix].particles_ix = Some(vec![*particle_ix]);
                 }
             }
             octant.bodies += part.particles_ix.unwrap().len() as u32;
@@ -425,11 +414,11 @@ impl TreeSim {
                     let child_oct_ix: usize = (&child_oct_handle).into();
                     octant.children[i] = child_oct_ix as u32;
                     child_part.octant_ix = Some(child_oct_handle);
-                    tx.send(child_part).expect("Failed to send Child to MPMC Queue");
+                    tx.send(child_part)
+                        .expect("Failed to send Child to MPMC Queue");
                 } else if part_count == 1 {
                     // leaf node (complete octant processing and finish)
-                    octant.cog =
-                        particle_data[child_part.particles_ix.unwrap()[0]].position;
+                    octant.cog = particle_data[child_part.particles_ix.unwrap()[0]].position;
                     octant.mass = 1.0;
                     octant.bodies = 1;
                     child_part.octant_ix = Some(child_oct_handle);
