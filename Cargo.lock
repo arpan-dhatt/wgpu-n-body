@@ -118,6 +118,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a4a45a46ab1f2412e53d3a0ade76ffad2025804294569aae387231a0cd6e0899"
 
 [[package]]
+name = "bumpalo-herd"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "280808c55cf72fb6b47e43c1d0e80d2417d3d84e6ebce360b9d0f2d1e7cc8f5c"
+dependencies = [
+ "bumpalo",
+]
+
+[[package]]
 name = "bytemuck"
 version = "1.7.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1904,8 +1913,11 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "bumpalo",
+ "bumpalo-herd",
  "bytemuck",
  "criterion",
+ "crossbeam-channel",
+ "crossbeam-utils",
  "env_logger",
  "glam",
  "image",
