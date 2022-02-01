@@ -1,5 +1,13 @@
-use std::{borrow::Cow, collections::VecDeque};
+use std::{
+    borrow::Cow,
+    sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    },
+    time::Instant,
+};
 
+use crossbeam_utils::thread;
 use rayon::prelude::*;
 use wgpu::util::DeviceExt;
 
@@ -19,8 +27,9 @@ pub struct TreeSim {
     compute_pipeline: wgpu::ComputePipeline,
     work_group_count: u32,
     step_num: usize,
-    alloc_arena: bumpalo_herd::Herd,
 }
+
+static NUM_CPUS: usize = 4;
 
 impl Simulator for TreeSim {
     fn new(
@@ -219,7 +228,6 @@ impl Simulator for TreeSim {
             compute_pipeline,
             work_group_count,
             step_num: 0,
-            alloc_arena: bumpalo_herd::Herd::new(),
         })
     }
 
@@ -303,9 +311,7 @@ impl Simulator for TreeSim {
         self.sim_params.clone()
     }
 
-    fn cleanup(&mut self) {
-        self.alloc_arena.reset();
-    }
+    fn cleanup(&mut self) {}
 }
 
 type BVec<'a, T> = bumpalo::collections::Vec<'a, T>;
@@ -315,7 +321,7 @@ struct Partition<'a> {
     center: [f32; 3],
     width: f32,
     octant_ix: Option<Reserve<'a>>,
-    particles_ix: Option<BVec<'a, usize>>,
+    particles_ix: Option<Vec<usize>>,
 }
 
 impl TreeSim {
@@ -326,6 +332,7 @@ impl TreeSim {
         queue: &wgpu::Queue,
         mut tree_sim_params: TreeSimParams,
     ) -> usize {
+        let t = Instant::now();
         let bound = particle_data
             .par_iter()
             .cloned()
@@ -358,8 +365,6 @@ impl TreeSim {
             bytemuck::cast_slice(&[tree_sim_params]),
         );
         let bound = [bound; 3];
-        let herd_member = self.alloc_arena.get();
-        let member_bump = herd_member.as_bump();
         let (tx, rx) = crossbeam_channel::unbounded();
         // initialize slice allocator
         let mut tree_alloc = SliceAlloc::wrap(tree_data);
@@ -369,75 +374,96 @@ impl TreeSim {
             center: [0.0; 3],
             width: bound[0] * 2.0,
             octant_ix: Some(root_ix),
-            particles_ix: Some(BVec::from_iter_in(
-                0..particle_data.len(),
-                member_bump,
-            )),
-        }).expect("Failed to send Partition to MPMC Channel");
+            particles_ix: Some((0..particle_data.len()).collect()),
+        })
+        .expect("Failed to send Partition to MPMC Channel");
         // while there are partitions to process
-        while let Ok(part) = rx.try_recv() {
-            // create all possible child partitions (not always added to queue)
-            let mut child_partitions: Vec<Partition> = (0..8)
-                .map(|ix| Partition {
-                    center: Self::shift_node_center(&part.center, part.width, ix),
-                    width: part.width / 2.0,
-                    octant_ix: None,
-                    particles_ix: None,
-                })
-                .collect();
-            // partition's octant
-            let mut octant = Octant::default();
-            // calculate octant data and particle child subdivisions
-            for particle_ix in part.particles_ix.as_ref().unwrap() {
-                let p = particle_data[*particle_ix];
-                octant.cog[0] += p.position[0];
-                octant.cog[1] += p.position[1];
-                octant.cog[2] += p.position[2];
-                octant.mass += 1.0;
-                let child_ix = Self::decide_octant(&part.center, &p.position);
-                if let Some(ref mut particles_ix) = child_partitions[child_ix].particles_ix {
-                    // child particles list already exists
-                    particles_ix.push(*particle_ix);
-                } else {
-                    // needs to be created
-                    child_partitions[child_ix].particles_ix =
-                        Some(BVec::from_iter_in(Some(*particle_ix), member_bump));
-                }
+        let active_threads = Arc::new(AtomicUsize::new(NUM_CPUS));
+        thread::scope(|scope| {
+            for _ in 0..NUM_CPUS {
+                let ac = active_threads.clone();
+                let txc = tx.clone();
+                let rxc = rx.clone();
+                let mut tac = tree_alloc.clone();
+                scope.spawn(move |_| {
+                    loop {
+                        // process all available partitions
+                        while let Ok(part) = rxc.try_recv() {
+                            // create all possible child partitions (not always added to queue)
+                            let mut child_partitions: Vec<Partition> = (0..8)
+                                .map(|ix| Partition {
+                                    center: Self::shift_node_center(&part.center, part.width, ix),
+                                    width: part.width / 2.0,
+                                    octant_ix: None,
+                                    particles_ix: None,
+                                })
+                                .collect();
+                            // partition's octant
+                            let mut octant = Octant::default();
+                            // calculate octant data and particle child subdivisions
+                            for particle_ix in part.particles_ix.as_ref().unwrap() {
+                                let p = particle_data[*particle_ix];
+                                octant.cog[0] += p.position[0];
+                                octant.cog[1] += p.position[1];
+                                octant.cog[2] += p.position[2];
+                                octant.mass += 1.0;
+                                let child_ix = Self::decide_octant(&part.center, &p.position);
+                                if let Some(ref mut particles_ix) =
+                                    child_partitions[child_ix].particles_ix
+                                {
+                                    // child particles list already exists
+                                    particles_ix.push(*particle_ix);
+                                } else {
+                                    // needs to be created
+                                    child_partitions[child_ix].particles_ix =
+                                        Some(vec![*particle_ix]);
+                                }
+                            }
+                            octant.bodies += part.particles_ix.unwrap().len() as u32;
+                            octant.cog[0] /= octant.mass;
+                            octant.cog[1] /= octant.mass;
+                            octant.cog[2] /= octant.mass;
+                            // only add new partitions if non-leaf node
+                            for (i, mut child_part) in child_partitions.into_iter().enumerate() {
+                                let part_count = child_part
+                                    .particles_ix
+                                    .as_ref()
+                                    .map(|v| v.len())
+                                    .unwrap_or(0);
+                                // zero-node does nothing
+                                if part_count == 0 {
+                                    continue;
+                                }
+                                let child_oct_handle = tac.write(Octant::default());
+                                if part_count > 1 {
+                                    // non-leaf node
+                                    let child_oct_ix: usize = (&child_oct_handle).into();
+                                    octant.children[i] = child_oct_ix as u32;
+                                    child_part.octant_ix = Some(child_oct_handle);
+                                    txc.send(child_part)
+                                        .expect("Failed to send Child to MPMC Queue");
+                                } else if part_count == 1 {
+                                    // leaf node (complete octant processing and finish)
+                                    octant.cog =
+                                        particle_data[child_part.particles_ix.unwrap()[0]].position;
+                                    octant.mass = 1.0;
+                                    octant.bodies = 1;
+                                    child_part.octant_ix = Some(child_oct_handle);
+                                }
+                            }
+                            // write octant to array
+                            tac[part.octant_ix.unwrap()] = octant;
+                        }
+                        if ac.fetch_sub(1, Ordering::Relaxed) <= 1 {
+                            // all other threads are also idle, so processing must be finished
+                            break;
+                        }
+                        ac.fetch_add(1, Ordering::Relaxed);
+                    }
+                });
             }
-            octant.bodies += part.particles_ix.unwrap().len() as u32;
-            octant.cog[0] /= octant.mass;
-            octant.cog[1] /= octant.mass;
-            octant.cog[2] /= octant.mass;
-            // only add new partitions if non-leaf node
-            for (i, mut child_part) in child_partitions.into_iter().enumerate() {
-                let part_count = child_part
-                    .particles_ix
-                    .as_ref()
-                    .map(|v| v.len())
-                    .unwrap_or(0);
-                // zero-node does nothing
-                if part_count == 0 {
-                    continue;
-                }
-                let child_oct_handle = tree_alloc.write(Octant::default());
-                if part_count > 1 {
-                    // non-leaf node
-                    let child_oct_ix: usize = (&child_oct_handle).into();
-                    octant.children[i] = child_oct_ix as u32;
-                    child_part.octant_ix = Some(child_oct_handle);
-                    tx.send(child_part).expect("Failed to send Child to MPMC Queue");
-                } else if part_count == 1 {
-                    // leaf node (complete octant processing and finish)
-                    octant.cog =
-                        particle_data[child_part.particles_ix.unwrap()[0]].position;
-                    octant.mass = 1.0;
-                    octant.bodies = 1;
-                    child_part.octant_ix = Some(child_oct_handle);
-                }
-            }
-            // write octant to array
-            tree_alloc[part.octant_ix.unwrap()] = octant;
-        }
+        })
+        .unwrap();
         tree_alloc.len()
     }
 
