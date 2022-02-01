@@ -339,8 +339,7 @@ impl TreeSim {
             .reduce(
                 || Particle {
                     position: [1.0; 3],
-                    velocity: [0.0; 3],
-                    acceleration: [0.0; 3],
+                    ..Particle::default()
                 },
                 |a, b| Particle {
                     position: [
@@ -348,8 +347,7 @@ impl TreeSim {
                         a.position[1].abs().max(b.position[1].abs()),
                         a.position[2].abs().max(b.position[2].abs()),
                     ],
-                    velocity: [0.0; 3],
-                    acceleration: [0.0; 3],
+                    ..Particle::default()
                 },
             )
             .position;
@@ -491,19 +489,21 @@ impl TreeSim {
     }
 }
 
+/// Child Octant Positions:
+/// ```
+/// Front: -z   Back: +z
+/// |---|---|   |---|---|
+/// | 2 | 3 |   | 6 | 7 |
+/// |---|---|   |---|---|
+/// | 0 | 1 |   | 4 | 5 |
+/// |---|---|   |---|---|
+/// ```
 #[repr(C)]
 #[derive(Copy, Clone, Debug, Default, bytemuck::Pod, bytemuck::Zeroable)]
 struct Octant {
-    /// Child Octant Positions:
-    /// ```
-    /// Front: -z   Back: +z
-    /// |---|---|   |---|---|
-    /// | 2 | 3 |   | 6 | 7 |
-    /// |---|---|   |---|---|
-    /// | 0 | 1 |   | 4 | 5 |
-    /// |---|---|   |---|---|
-    /// ```
     cog: [f32; 3],
+    // padding to account for WGSL vec3<T> alignment
+    _padding0: u32,
     mass: f32,
     bodies: u32,
     children: [u32; 8],

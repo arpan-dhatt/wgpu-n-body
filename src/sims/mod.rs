@@ -7,11 +7,15 @@ pub use tree::TreeSim;
 pub const PARTICLES_PER_GROUP: u32 = 64;
 
 #[repr(C)]
-#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+#[derive(Copy, Clone, Debug, Default, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct Particle {
     pub position: [f32; 3],
+    // padding items to conform to WGSL vec3<T> alignment
+    pub _padding0: u32,
     pub velocity: [f32; 3],
+    pub _padding1: u32,
     pub acceleration: [f32; 3],
+    pub _padding2: u32,
 }
 
 impl Particle {
