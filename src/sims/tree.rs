@@ -1,4 +1,4 @@
-use std::{borrow::Cow, collections::VecDeque};
+use std::{borrow::Cow, collections::VecDeque, time::Instant};
 
 use rayon::prelude::*;
 use wgpu::util::DeviceExt;
@@ -357,6 +357,7 @@ impl TreeSim {
         queue: &wgpu::Queue,
         mut tree_sim_params: TreeSimParams,
     ) -> usize {
+        let now = Instant::now();
         let bound = particle_data
             .par_iter()
             .cloned()
@@ -471,6 +472,7 @@ impl TreeSim {
             // write octant to array
             tree_alloc[part.octant_ix.unwrap()] = octant;
         }
+        //println!("{} µs on tree construction", now.elapsed().as_micros());
         tree_alloc.len()
     }
 
@@ -495,13 +497,9 @@ impl TreeSim {
         particles_dst: &mut [Particle],
         tree_data: &[Octant],
     ) {
-        let thread_pool = rayon::ThreadPoolBuilder::new()
-            .num_threads(4)
-            .build()
-            .unwrap();
-        thread_pool.install(|| {
-            Self::sort_particles_recursive(tree_data[0], particles_src, particles_dst, tree_data)
-        })
+        let now = Instant::now();
+        Self::sort_particles_recursive(tree_data[0], particles_src, particles_dst, tree_data);
+        //println!("{} µs on particle sorting", now.elapsed().as_micros());
     }
 
     fn sort_particles_recursive(
