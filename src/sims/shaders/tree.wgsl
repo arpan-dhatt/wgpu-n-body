@@ -1,5 +1,5 @@
 struct Octant {
-    c: vec3<f32>;
+    cx: f32; cy: f32; cz: f32;
     mass: f32;
     bodies: u32;
     children: array<u32,8>;
@@ -28,7 +28,7 @@ struct Particles {
 };
 
 struct Octants {
-    octants: [[stride(64)]] array<Octant>;
+    octants: [[stride(52)]] array<Octant>;
 };
 
 [[group(0), binding(0)]] var<uniform> params: SimParams;
@@ -52,7 +52,7 @@ fn getAcc(aPos: vec3<f32>, index: u32, total: u32) -> vec3<f32> {
         }
         let top_oct: Octant = treeSrc.octants[ oct_stack[size - 1u] ];
         let top_size = size_stack[size - 1u];
-        let cog = top_oct.c;
+        let cog = vec3<f32>(top_oct.cx, top_oct.cy, top_oct.cz);
         let dist = distance(aPos, cog);
         if (dist < 0.00001 & top_oct.bodies == 1u) {
             // same body so skip calculation
@@ -106,5 +106,5 @@ fn main([[builtin(global_invocation_id)]] global_invocation_id: vec3<u32>) {
     let acc = getAcc(aPos, index, total);
     aVel = aVel + acc * params.dt / 2.0;
 
-    particlesDst.particles[index] = Particle(aPos, aVel, aAcc);
+    particlesDst.particles[index] = Particle(aPos, aVel, acc);
 }

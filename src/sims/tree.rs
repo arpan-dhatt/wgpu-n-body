@@ -4,14 +4,15 @@ use std::{
         atomic::{AtomicUsize, Ordering},
         Arc,
     },
-    time::Instant,
 };
 
 use crossbeam_utils::thread;
+use glam::Vec3A;
+use image::EncodableLayout;
 use rayon::prelude::*;
 use wgpu::util::DeviceExt;
 
-use crate::utils::slice_alloc::{Reserve, SliceAlloc};
+use crate::utils::{slice_alloc::{Reserve, SliceAlloc}, self};
 
 use super::{Particle, SimParams, Simulator};
 
@@ -152,7 +153,11 @@ impl Simulator for TreeSim {
             particle_buffers.push(
                 device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                     label: Some(&format!("Particle Buffer {}", i)),
-                    contents: bytemuck::cast_slice(&initial_particles),
+                    contents: unsafe {
+                        let particle_slice = initial_particles.as_slice();
+                        let num_bytes = particle_slice.len() * std::mem::size_of::<Particle>();
+                        std::slice::from_raw_parts::<u8>(particle_slice.as_ptr() as *const _, num_bytes)
+                    },
                     usage: wgpu::BufferUsages::VERTEX
                         | wgpu::BufferUsages::STORAGE
                         | wgpu::BufferUsages::COPY_SRC
@@ -258,8 +263,12 @@ impl Simulator for TreeSim {
         let read_buffer_mapped = read_buffer_slice.get_mapped_range();
         let mut tree_staging_mapped = tree_staging_slice.get_mapped_range_mut();
 
-        let particle_read_data: &[Particle] = bytemuck::cast_slice(&read_buffer_mapped);
-        let tree_staging_data: &mut [Octant] = bytemuck::cast_slice_mut(&mut tree_staging_mapped);
+        let particle_read_data: &[Particle] = unsafe {
+            utils::cast_slice(read_buffer_mapped.as_bytes())
+        };
+        let tree_staging_data: &mut [Octant] = unsafe {
+            utils::cast_slice_mut(&mut tree_staging_mapped)
+        };
 
         let octree_nodes = self.build_tree(
             particle_read_data,
@@ -332,21 +341,16 @@ impl TreeSim {
         queue: &wgpu::Queue,
         mut tree_sim_params: TreeSimParams,
     ) -> usize {
-        let t = Instant::now();
         let bound = particle_data
             .par_iter()
             .cloned()
             .reduce(
                 || Particle {
-                    position: [1.0; 3],
+                    position: Vec3A::ONE,
                     ..Particle::default()
                 },
                 |a, b| Particle {
-                    position: [
-                        a.position[0].abs().max(b.position[0].abs()),
-                        a.position[1].abs().max(b.position[1].abs()),
-                        a.position[2].abs().max(b.position[2].abs()),
-                    ],
+                    position: a.position.max(b.position.abs()),
                     ..Particle::default()
                 },
             )
@@ -398,12 +402,12 @@ impl TreeSim {
                                 .collect();
                             // partition's octant
                             let mut octant = Octant::default();
+                            // temporary center of gravity variable to allow SIMD operations
+                            let mut temp_cog = Vec3A::ZERO;
                             // calculate octant data and particle child subdivisions
                             for particle_ix in part.particles_ix.as_ref().unwrap() {
                                 let p = particle_data[*particle_ix];
-                                octant.cog[0] += p.position[0];
-                                octant.cog[1] += p.position[1];
-                                octant.cog[2] += p.position[2];
+                                temp_cog += p.position;
                                 octant.mass += 1.0;
                                 let child_ix = Self::decide_octant(&part.center, &p.position);
                                 if let Some(ref mut particles_ix) =
@@ -418,9 +422,8 @@ impl TreeSim {
                                 }
                             }
                             octant.bodies += part.particles_ix.unwrap().len() as u32;
-                            octant.cog[0] /= octant.mass;
-                            octant.cog[1] /= octant.mass;
-                            octant.cog[2] /= octant.mass;
+                            temp_cog /= octant.mass;
+                            temp_cog.write_to_slice(&mut octant.cog);
                             // only add new partitions if non-leaf node
                             for (i, mut child_part) in child_partitions.into_iter().enumerate() {
                                 let part_count = child_part
@@ -432,7 +435,8 @@ impl TreeSim {
                                 if part_count == 0 {
                                     continue;
                                 }
-                                let child_oct_handle = tac.write(Octant::default());
+                                let mut child_octant = Octant::default();
+                                let child_oct_handle = tac.write(child_octant.clone());
                                 if part_count > 1 {
                                     // non-leaf node
                                     let child_oct_ix: usize = (&child_oct_handle).into();
@@ -442,11 +446,10 @@ impl TreeSim {
                                         .expect("Failed to send Child to MPMC Queue");
                                 } else if part_count == 1 {
                                     // leaf node (complete octant processing and finish)
-                                    octant.cog =
-                                        particle_data[child_part.particles_ix.unwrap()[0]].position;
-                                    octant.mass = 1.0;
-                                    octant.bodies = 1;
-                                    child_part.octant_ix = Some(child_oct_handle);
+                                    particle_data[child_part.particles_ix.unwrap()[0]].position.write_to_slice(&mut child_octant.cog);
+                                    child_octant.mass = 1.0;
+                                    child_octant.bodies = 1;
+                                    tac[child_oct_handle] = child_octant;
                                 }
                             }
                             // write octant to array
@@ -466,7 +469,7 @@ impl TreeSim {
     }
 
     #[inline]
-    fn decide_octant(center: &[f32; 3], point: &[f32; 3]) -> usize {
+    fn decide_octant(center: &[f32; 3], point: &Vec3A) -> usize {
         ((point[0] > center[0]) as usize)
             | (((point[1] > center[1]) as usize) << 1)
             | (((point[2] > center[2]) as usize) << 2)
@@ -499,11 +502,9 @@ impl TreeSim {
 /// |---|---|   |---|---|
 /// ```
 #[repr(C)]
-#[derive(Copy, Clone, Debug, Default, bytemuck::Pod, bytemuck::Zeroable)]
+#[derive(Clone, Debug, Default)]
 struct Octant {
     cog: [f32; 3],
-    // padding to account for WGSL vec3<T> alignment
-    _padding0: u32,
     mass: f32,
     bodies: u32,
     children: [u32; 8],

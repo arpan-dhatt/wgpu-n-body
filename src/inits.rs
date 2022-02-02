@@ -9,17 +9,17 @@ pub fn uniform_init(sim_params: &SimParams) -> Vec<Particle> {
     let mut initial_particles = Vec::with_capacity(sim_params.particle_num as usize);
     for _ in 0..sim_params.particle_num {
         initial_particles.push(Particle {
-            position: [
+            position: Vec3A::new(
                 pos_unif.sample(&mut rng),
                 pos_unif.sample(&mut rng),
                 pos_unif.sample(&mut rng),
-            ],
-            velocity: [
+            ),
+            velocity: Vec3A::new(
                 pos_unif.sample(&mut rng) * 0.001,
                 pos_unif.sample(&mut rng) * 0.001,
                 pos_unif.sample(&mut rng) * 0.001,
-            ],
-            acceleration: [0.0, 0.0, 0.0],
+            ),
+            acceleration: Vec3A::ZERO,
             ..Particle::default()
         });
     }
@@ -38,9 +38,9 @@ pub fn disc_init(sim_params: &SimParams) -> Vec<Particle> {
         }
         let vel = coeff * 1.0 * (pos.length().sqrt() + 0.001) * pos.cross(Vec3A::Z).normalize();
         initial_particles.push(Particle {
-            position: pos.to_array(),
-            velocity: vel.to_array(),
-            acceleration: [0.0, 0.0, 0.0],
+            position: pos,
+            velocity: vel,
+            acceleration: Vec3A::ZERO,
             ..Particle::default()
         })
     }

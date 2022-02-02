@@ -64,5 +64,5 @@ fn main([[builtin(global_invocation_id)]] global_invocation_id: vec3<u32>) {
     let acc = getAcc(aPos, index, total);
     aVel = aVel + acc * params.dt / 2.0;
 
-    particlesDst.particles[index] = Particle(aPos, aVel, aAcc);
+    particlesDst.particles[index] = Particle(aPos, aVel, acc);
 }

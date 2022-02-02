@@ -1,21 +1,19 @@
 mod naive;
 mod tree;
 
+use glam::Vec3A;
 pub use naive::NaiveSim;
 pub use tree::TreeSim;
 
 pub const PARTICLES_PER_GROUP: u32 = 64;
 
 #[repr(C)]
-#[derive(Copy, Clone, Debug, Default, bytemuck::Pod, bytemuck::Zeroable)]
+#[derive(Copy, Clone, Debug, Default)]
 pub struct Particle {
-    pub position: [f32; 3],
+    pub position: Vec3A,
     // padding items to conform to WGSL vec3<T> alignment
-    pub _padding0: u32,
-    pub velocity: [f32; 3],
-    pub _padding1: u32,
-    pub acceleration: [f32; 3],
-    pub _padding2: u32,
+    pub velocity: Vec3A,
+    pub acceleration: Vec3A,
 }
 
 impl Particle {
@@ -30,12 +28,12 @@ impl Particle {
                     format: wgpu::VertexFormat::Float32x3,
                 },
                 wgpu::VertexAttribute {
-                    offset: std::mem::size_of::<[f32; 3]>() as wgpu::BufferAddress,
+                    offset: std::mem::size_of::<glam::Vec3A>() as wgpu::BufferAddress,
                     shader_location: 1,
                     format: wgpu::VertexFormat::Float32x3,
                 },
                 wgpu::VertexAttribute {
-                    offset: (std::mem::size_of::<[f32; 3]>() * 2) as wgpu::BufferAddress,
+                    offset: (std::mem::size_of::<glam::Vec3A>() * 2) as wgpu::BufferAddress,
                     shader_location: 2,
                     format: wgpu::VertexFormat::Float32x3,
                 },

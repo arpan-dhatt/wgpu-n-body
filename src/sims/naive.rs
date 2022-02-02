@@ -1,5 +1,7 @@
 use std::borrow::Cow;
 
+use crate::utils;
+
 use super::Particle;
 use super::SimParams;
 use super::Simulator;
@@ -99,7 +101,9 @@ impl Simulator for NaiveSim {
             particle_buffers.push(
                 device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                     label: Some(&format!("Particle Buffer {}", i)),
-                    contents: bytemuck::cast_slice(&initial_particles),
+                    contents: unsafe {
+                        utils::cast_slice(initial_particles.as_slice())
+                    },
                     usage: wgpu::BufferUsages::VERTEX
                         | wgpu::BufferUsages::STORAGE
                         | wgpu::BufferUsages::COPY_DST,
