@@ -495,38 +495,37 @@ impl TreeSim {
         particles_dst: &mut [Particle],
         tree_data: &[Octant],
     ) {
-        let mut insert_ix = 0;
-        Self::sort_particles_recursive(
-            tree_data[0],
-            particles_src,
-            particles_dst,
-            &mut insert_ix,
-            tree_data,
-        );
+        let thread_pool = rayon::ThreadPoolBuilder::new()
+            .num_threads(4)
+            .build()
+            .unwrap();
+        thread_pool.install(|| {
+            Self::sort_particles_recursive(tree_data[0], particles_src, particles_dst, tree_data)
+        })
     }
 
     fn sort_particles_recursive(
         octant: Octant,
         particles_src: &[Particle],
         particles_dst: &mut [Particle],
-        insert_ix: &mut usize,
         tree_data: &[Octant],
     ) {
         if octant.bodies == 1 {
-            particles_dst[*insert_ix] = particles_src[octant.children[0] as usize];
-            *insert_ix += 1;
+            particles_dst[0] = particles_src[octant.children[0] as usize];
         } else {
+            let mut slices = vec![];
+            let mut remaining = particles_dst;
             for child_ix in octant.children {
                 if child_ix != 0 {
-                    Self::sort_particles_recursive(
-                        tree_data[child_ix as usize],
-                        particles_src,
-                        particles_dst,
-                        insert_ix,
-                        tree_data,
-                    );
+                    let child_octant = tree_data[child_ix as usize];
+                    let (a_slice, b_slice) = remaining.split_at_mut(child_octant.bodies as usize);
+                    remaining = b_slice;
+                    slices.push((child_octant, a_slice));
                 }
             }
+            slices.par_iter_mut().for_each(|(child_octant, child_slice)| {
+                Self::sort_particles_recursive(*child_octant, particles_src, child_slice, tree_data);
+            });
         }
     }
 }
