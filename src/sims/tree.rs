@@ -401,7 +401,7 @@ impl TreeSim {
             particles_ix: Some((0..particle_data.len()).collect()),
         };
         Self::process_partition(particle_data, queue, tree_sim_params, root_partition, tree_alloc.clone());
-        //println!("{} µs on tree construction", now.elapsed().as_micros());
+        println!("{} µs on tree construction", now.elapsed().as_micros());
         tree_alloc.len()
     }
 
