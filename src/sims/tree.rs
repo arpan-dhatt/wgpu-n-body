@@ -472,7 +472,7 @@ impl TreeSim {
             // write octant to array
             tree_alloc[part.octant_ix.unwrap()] = octant;
         }
-        //println!("{} µs on tree construction", now.elapsed().as_micros());
+        println!("{} µs on tree construction", now.elapsed().as_micros());
         tree_alloc.len()
     }
 
@@ -499,7 +499,7 @@ impl TreeSim {
     ) {
         let now = Instant::now();
         Self::sort_particles_recursive(tree_data[0], particles_src, particles_dst, tree_data);
-        //println!("{} µs on particle sorting", now.elapsed().as_micros());
+        println!("{} µs on particle sorting", now.elapsed().as_micros());
     }
 
     fn sort_particles_recursive(
