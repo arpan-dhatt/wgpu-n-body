@@ -430,9 +430,10 @@ impl TreeSim {
                     // leaf node (complete octant processing and finish)
                     let mut leaf_octant = Octant::default(); 
                     leaf_octant.cog =
-                        particle_data[child_part.particles_ix.unwrap()[0]].position;
+                        particle_data[child_part.particles_ix.as_ref().unwrap()[0]].position;
                     leaf_octant.mass = 1.0;
                     leaf_octant.bodies = 1;
+                    leaf_octant.children[0] = child_part.particles_ix.unwrap()[0] as u32;
                     tree_alloc[child_oct_handle] = leaf_octant;
                 }
             }
@@ -480,6 +481,7 @@ struct Octant {
     /// ```
     cog: [f32; 3],
     mass: f32,
+    // if bodies == 1 then read data from particles array (first child ix)
     bodies: u32,
     children: [u32; 8],
 }
