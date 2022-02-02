@@ -141,7 +141,7 @@ impl Simulator for NaiveSim {
         })
     }
 
-    fn encode(&mut self, device: &wgpu::Device, queue: &wgpu::Queue) -> wgpu::CommandEncoder {
+    fn encode(&mut self, device: &wgpu::Device, _queue: &wgpu::Queue) -> wgpu::CommandEncoder {
         let mut encoder = device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("Compute and Render Command"),
@@ -163,6 +163,6 @@ impl Simulator for NaiveSim {
     }
 
     fn sim_params(&self) -> SimParams {
-        self.sim_params.clone()
+        self.sim_params
     }
 }

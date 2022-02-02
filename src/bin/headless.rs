@@ -1,6 +1,6 @@
 use std::time::Instant;
 
-use wgpu_n_body::{runners::OfflineHeadless, inits, sims::{NaiveSim, SimParams, TreeSim}};
+use wgpu_n_body::{runners::OfflineHeadless, inits, sims::{SimParams, TreeSim}};
 
 #[global_allocator]
 static ALLOC: jemallocator::Jemalloc = jemallocator::Jemalloc;

@@ -20,15 +20,15 @@ pub struct Reserve<'a> {
     phantom: PhantomData<&'a ()>
 }
 
-impl Into<usize> for Reserve<'_> {
-    fn into(self) -> usize {
-        self.ix
+impl From<Reserve<'_>> for usize {
+    fn from(r: Reserve<'_>) -> Self {
+        r.ix
     }
 }
 
-impl Into<usize> for &Reserve<'_> {
-    fn into(self) -> usize {
-        self.ix
+impl From<&Reserve<'_>> for usize {
+    fn from(r: &Reserve<'_>) -> Self {
+        r.ix
     }
 }
 
@@ -50,6 +50,7 @@ impl<'a, T> SliceAlloc<'a, T> {
     /// `Reserve` values are only passed to the `SliceAlloc`s that issue it.
     pub fn write(&mut self, value: T) -> Reserve<'a> {
         let ix = self.alloced.fetch_add(1, Ordering::Relaxed);
+        self.inner[ix] = value;
         Reserve {
             ix,
             phantom: PhantomData,

@@ -1,4 +1,4 @@
-use std::{borrow::Cow, collections::VecDeque, time::Instant};
+use std::{borrow::Cow, collections::VecDeque};
 
 use rayon::prelude::*;
 use wgpu::util::DeviceExt;
@@ -271,11 +271,11 @@ impl Simulator for TreeSim {
         let octree_nodes = self.build_tree(
             particle_read_data,
             tree_staging_data,
-            &queue,
-            self.tree_sim_params.clone(),
+            queue,
+            self.tree_sim_params,
         );
 
-        Self::sort_particles(particle_read_data, particle_write_data, &tree_staging_data);
+        Self::sort_particles(particle_read_data, particle_write_data, tree_staging_data);
 
         drop(read_buffer_mapped);
         self.particle_read_buffer.unmap();
@@ -331,7 +331,7 @@ impl Simulator for TreeSim {
     }
 
     fn sim_params(&self) -> SimParams {
-        self.sim_params.clone()
+        self.sim_params
     }
 
     fn cleanup(&mut self) {
@@ -357,7 +357,6 @@ impl TreeSim {
         queue: &wgpu::Queue,
         mut tree_sim_params: TreeSimParams,
     ) -> usize {
-        let now = Instant::now();
         let bound = particle_data
             .par_iter()
             .cloned()
@@ -392,20 +391,19 @@ impl TreeSim {
         let bound = [bound; 3];
         let herd_member = self.alloc_arena.get();
         let member_bump = herd_member.as_bump();
-        let (tx, rx) = crossbeam_channel::unbounded();
+        let mut part_queue = VecDeque::new();
         // initialize slice allocator
         let mut tree_alloc = SliceAlloc::wrap(tree_data);
         let root_ix = tree_alloc.write(Octant::default());
         // create root partition (all particles)
-        tx.send(Partition {
+        part_queue.push_back(Partition {
             center: [0.0; 3],
             width: bound[0] * 2.0,
             octant_ix: Some(root_ix),
             particles_ix: Some(BVec::from_iter_in(0..particle_data.len(), member_bump)),
-        })
-        .expect("Failed to send Partition to MPMC Channel");
+        });
         // while there are partitions to process
-        while let Ok(part) = rx.try_recv() {
+        while let Some(part) = part_queue.pop_front() {
             // create all possible child partitions (not always added to queue)
             let mut child_partitions: Vec<Partition> = (0..8)
                 .map(|ix| Partition {
@@ -452,27 +450,30 @@ impl TreeSim {
                 let child_oct_handle = tree_alloc.write(Octant::default());
                 let child_oct_ix: usize = (&child_oct_handle).into();
                 octant.children[i] = child_oct_ix as u32;
-                if part_count > 1 {
-                    // non-leaf node
-                    child_part.octant_ix = Some(child_oct_handle);
-                    tx.send(child_part)
-                        .expect("Failed to send Child to MPMC Queue");
-                } else if part_count == 1 {
-                    // leaf node (complete octant processing and finish)
-                    let mut leaf_octant = Octant::default();
-                    leaf_octant.cog =
-                        particle_data[child_part.particles_ix.as_ref().unwrap()[0]].position;
-                    leaf_octant.mass = 1.0;
-                    leaf_octant.bodies = 1;
-                    // set first child to particle index for sorting particles by locality
-                    leaf_octant.children[0] = child_part.particles_ix.unwrap()[0] as u32;
-                    tree_alloc[child_oct_handle] = leaf_octant;
-                }
+                match part_count {
+                    1 => {
+                        // leaf node (complete octant processing and finish)
+                        let mut leaf_octant = Octant {
+                            cog: particle_data[child_part.particles_ix.as_ref().unwrap()[0]]
+                                .position,
+                            mass: 1.0,
+                            bodies: 1,
+                            ..Default::default()
+                        };
+                        // set first child to particle index for sorting particles by locality
+                        leaf_octant.children[0] = child_part.particles_ix.unwrap()[0] as u32;
+                        tree_alloc[child_oct_handle] = leaf_octant;
+                    }
+                    _ => {
+                        // non-leaf node
+                        child_part.octant_ix = Some(child_oct_handle);
+                        part_queue.push_back(child_part);
+                    }
+                };
             }
             // write octant to array
             tree_alloc[part.octant_ix.unwrap()] = octant;
         }
-        println!("{} µs on tree construction", now.elapsed().as_micros());
         tree_alloc.len()
     }
 
@@ -497,9 +498,7 @@ impl TreeSim {
         particles_dst: &mut [Particle],
         tree_data: &[Octant],
     ) {
-        let now = Instant::now();
         Self::sort_particles_recursive(tree_data[0], particles_src, particles_dst, tree_data);
-        println!("{} µs on particle sorting", now.elapsed().as_micros());
     }
 
     fn sort_particles_recursive(
@@ -521,9 +520,16 @@ impl TreeSim {
                     slices.push((child_octant, a_slice));
                 }
             }
-            slices.par_iter_mut().for_each(|(child_octant, child_slice)| {
-                Self::sort_particles_recursive(*child_octant, particles_src, child_slice, tree_data);
-            });
+            slices
+                .par_iter_mut()
+                .for_each(|(child_octant, child_slice)| {
+                    Self::sort_particles_recursive(
+                        *child_octant,
+                        particles_src,
+                        child_slice,
+                        tree_data,
+                    );
+                });
         }
     }
 }

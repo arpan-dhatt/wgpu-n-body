@@ -1,6 +1,5 @@
 use wgpu_n_body::{
     inits, runners,
-    sims::NaiveSim,
     sims::{self, TreeSim},
 };
 
