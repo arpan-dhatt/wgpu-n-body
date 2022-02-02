@@ -14,6 +14,7 @@ pub struct TreeSim {
     particle_bind_groups: Vec<wgpu::BindGroup>,
     particle_buffers: Vec<wgpu::Buffer>,
     particle_read_buffer: wgpu::Buffer,
+    particle_write_buffer: wgpu::Buffer,
     tree_buffer: wgpu::Buffer,
     tree_staging_buffer: wgpu::Buffer,
     compute_pipeline: wgpu::ComputePipeline,
@@ -159,6 +160,13 @@ impl Simulator for TreeSim {
             mapped_at_creation: false,
         });
 
+        let particle_write_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Particle Write Buffer"),
+            size: (std::mem::size_of::<Particle>() as u32 * sim_params.particle_num) as _,
+            usage: wgpu::BufferUsages::MAP_WRITE | wgpu::BufferUsages::COPY_SRC,
+            mapped_at_creation: false,
+        });
+
         let tree_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Completed Tree Buffer"),
             size: (std::mem::size_of::<Octant>() as u32 * sim_params.particle_num * 4) as _,
@@ -214,6 +222,7 @@ impl Simulator for TreeSim {
             particle_bind_groups,
             particle_buffers,
             particle_read_buffer,
+            particle_write_buffer,
             tree_buffer,
             tree_staging_buffer,
             compute_pipeline,
@@ -239,18 +248,24 @@ impl Simulator for TreeSim {
         queue.submit(Some(read_encoder.finish()));
 
         let read_buffer_slice = self.particle_read_buffer.slice(..);
+        let write_buffer_slice = self.particle_write_buffer.slice(..);
         let tree_staging_slice = self.tree_staging_buffer.slice(..);
 
         let read_buffer_future = read_buffer_slice.map_async(wgpu::MapMode::Read);
+        let write_buffer_future = write_buffer_slice.map_async(wgpu::MapMode::Write);
         let tree_staging_future = tree_staging_slice.map_async(wgpu::MapMode::Write);
         device.poll(wgpu::Maintain::Wait);
         pollster::block_on(read_buffer_future).unwrap();
+        pollster::block_on(write_buffer_future).unwrap();
         pollster::block_on(tree_staging_future).unwrap();
 
         let read_buffer_mapped = read_buffer_slice.get_mapped_range();
+        let mut write_buffer_mapped = write_buffer_slice.get_mapped_range_mut();
         let mut tree_staging_mapped = tree_staging_slice.get_mapped_range_mut();
 
         let particle_read_data: &[Particle] = bytemuck::cast_slice(&read_buffer_mapped);
+        let particle_write_data: &mut [Particle] =
+            bytemuck::cast_slice_mut(&mut write_buffer_mapped);
         let tree_staging_data: &mut [Octant] = bytemuck::cast_slice_mut(&mut tree_staging_mapped);
 
         let octree_nodes = self.build_tree(
@@ -260,14 +275,30 @@ impl Simulator for TreeSim {
             self.tree_sim_params.clone(),
         );
 
+        Self::sort_particles(particle_read_data, particle_write_data, &tree_staging_data);
+
         drop(read_buffer_mapped);
         self.particle_read_buffer.unmap();
+        drop(write_buffer_mapped);
+        self.particle_write_buffer.unmap();
         drop(tree_staging_mapped);
         self.tree_staging_buffer.unmap();
 
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("Tree Flush/Compute/Render Command"),
         });
+
+        encoder.push_debug_group("flush sorted particle buffer");
+        {
+            encoder.copy_buffer_to_buffer(
+                &self.particle_write_buffer,
+                0,
+                &self.particle_buffers[self.step_num % 2],
+                0,
+                (std::mem::size_of::<Particle>() as u32 * self.sim_params.particle_num as u32) as _,
+            );
+        }
+        encoder.pop_debug_group();
 
         encoder.push_debug_group("flush tree staging buffer");
         {
@@ -369,11 +400,9 @@ impl TreeSim {
             center: [0.0; 3],
             width: bound[0] * 2.0,
             octant_ix: Some(root_ix),
-            particles_ix: Some(BVec::from_iter_in(
-                0..particle_data.len(),
-                member_bump,
-            )),
-        }).expect("Failed to send Partition to MPMC Channel");
+            particles_ix: Some(BVec::from_iter_in(0..particle_data.len(), member_bump)),
+        })
+        .expect("Failed to send Partition to MPMC Channel");
         // while there are partitions to process
         while let Ok(part) = rx.try_recv() {
             // create all possible child partitions (not always added to queue)
@@ -425,14 +454,16 @@ impl TreeSim {
                 if part_count > 1 {
                     // non-leaf node
                     child_part.octant_ix = Some(child_oct_handle);
-                    tx.send(child_part).expect("Failed to send Child to MPMC Queue");
+                    tx.send(child_part)
+                        .expect("Failed to send Child to MPMC Queue");
                 } else if part_count == 1 {
                     // leaf node (complete octant processing and finish)
-                    let mut leaf_octant = Octant::default(); 
+                    let mut leaf_octant = Octant::default();
                     leaf_octant.cog =
                         particle_data[child_part.particles_ix.as_ref().unwrap()[0]].position;
                     leaf_octant.mass = 1.0;
                     leaf_octant.bodies = 1;
+                    // set first child to particle index for sorting particles by locality
                     leaf_octant.children[0] = child_part.particles_ix.unwrap()[0] as u32;
                     tree_alloc[child_oct_handle] = leaf_octant;
                 }
@@ -451,19 +482,52 @@ impl TreeSim {
     }
 
     #[inline]
-    fn balance_cog(cog: &mut [f32; 3], curr_mass: f32, new_pos: &[f32; 3]) {
-        cog[0] += (new_pos[0] - cog[0]) * (1.0 / (curr_mass + 1.0));
-        cog[1] += (new_pos[1] - cog[1]) * (1.0 / (curr_mass + 1.0));
-        cog[2] += (new_pos[2] - cog[2]) * (1.0 / (curr_mass + 1.0));
-    }
-
-    #[inline]
     fn shift_node_center(node_center: &[f32; 3], node_width: f32, child_octant: usize) -> [f32; 3] {
         [
             node_center[0] + ((child_octant & 1) as i32 * 2 - 1) as f32 * node_width / 4.0,
             node_center[1] + (((child_octant & 2) >> 1) as i32 * 2 - 1) as f32 * node_width / 4.0,
             node_center[2] + (((child_octant & 4) >> 2) as i32 * 2 - 1) as f32 * node_width / 4.0,
         ]
+    }
+
+    fn sort_particles(
+        particles_src: &[Particle],
+        particles_dst: &mut [Particle],
+        tree_data: &[Octant],
+    ) {
+        let mut insert_ix = 0;
+        Self::sort_particles_recursive(
+            tree_data[0],
+            particles_src,
+            particles_dst,
+            &mut insert_ix,
+            tree_data,
+        );
+    }
+
+    fn sort_particles_recursive(
+        octant: Octant,
+        particles_src: &[Particle],
+        particles_dst: &mut [Particle],
+        insert_ix: &mut usize,
+        tree_data: &[Octant],
+    ) {
+        if octant.bodies == 1 {
+            particles_dst[*insert_ix] = particles_src[octant.children[0] as usize];
+            *insert_ix += 1;
+        } else {
+            for child_ix in octant.children {
+                if child_ix != 0 {
+                    Self::sort_particles_recursive(
+                        tree_data[child_ix as usize],
+                        particles_src,
+                        particles_dst,
+                        insert_ix,
+                        tree_data,
+                    );
+                }
+            }
+        }
     }
 }
 
