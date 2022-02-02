@@ -420,19 +420,20 @@ impl TreeSim {
                     continue;
                 }
                 let child_oct_handle = tree_alloc.write(Octant::default());
+                let child_oct_ix: usize = (&child_oct_handle).into();
+                octant.children[i] = child_oct_ix as u32;
                 if part_count > 1 {
                     // non-leaf node
-                    let child_oct_ix: usize = (&child_oct_handle).into();
-                    octant.children[i] = child_oct_ix as u32;
                     child_part.octant_ix = Some(child_oct_handle);
                     tx.send(child_part).expect("Failed to send Child to MPMC Queue");
                 } else if part_count == 1 {
                     // leaf node (complete octant processing and finish)
-                    octant.cog =
+                    let mut leaf_octant = Octant::default(); 
+                    leaf_octant.cog =
                         particle_data[child_part.particles_ix.unwrap()[0]].position;
-                    octant.mass = 1.0;
-                    octant.bodies = 1;
-                    child_part.octant_ix = Some(child_oct_handle);
+                    leaf_octant.mass = 1.0;
+                    leaf_octant.bodies = 1;
+                    tree_alloc[child_oct_handle] = leaf_octant;
                 }
             }
             // write octant to array
