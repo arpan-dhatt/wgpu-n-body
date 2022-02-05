@@ -36,7 +36,7 @@ impl Simulator for TreeSim {
         });
 
         let tree_sim_params = TreeSimParams {
-            theta: 0.5,
+            theta: 0.75,
             root_width: 2.0,
         };
         let tree_sim_params_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
