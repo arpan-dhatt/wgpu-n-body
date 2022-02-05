@@ -32,7 +32,7 @@ fn main() {
     let mut state = pollster::block_on(runners::OnlineRenderer::<TreeSim>::new(
         &window,
         sim_params,
-        inits::uniform_init,
+        inits::spherical_init,
     ))
     .unwrap();
 

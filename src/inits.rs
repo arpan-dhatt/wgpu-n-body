@@ -44,3 +44,37 @@ pub fn disc_init(sim_params: &SimParams) -> Vec<Particle> {
     }
     initial_particles
 }
+
+pub fn spherical_init(sim_params: &SimParams) -> Vec<Particle> {
+    const OUTWARD_VEL: f32 = 0.1;
+    let mut rng = rand::thread_rng();
+    let unif = Uniform::new_inclusive(-1.0, 1.0);
+    let mut initial_particles = Vec::with_capacity(sim_params.particle_num as usize);
+    for _ in 0..sim_params.particle_num {
+        let mut pos: Vec3A = Vec3A::new(
+            unif.sample(&mut rng),
+            unif.sample(&mut rng),
+            unif.sample(&mut rng),
+        );
+        while pos.length() > 1.0 {
+            pos = Vec3A::new(
+                unif.sample(&mut rng),
+                unif.sample(&mut rng),
+                unif.sample(&mut rng),
+            );
+        }
+        let vel = Vec3A::new(
+            unif.sample(&mut rng),
+            unif.sample(&mut rng),
+            unif.sample(&mut rng),
+        )
+        .normalize()
+            * OUTWARD_VEL;
+        initial_particles.push(Particle {
+            position: pos.to_array(),
+            velocity: vel.to_array(),
+            acceleration: [0.0; 3],
+        });
+    }
+    initial_particles
+}
