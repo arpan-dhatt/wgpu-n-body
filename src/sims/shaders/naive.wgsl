@@ -13,7 +13,7 @@ struct SimParams {
 };
 
 struct Particles {
-    particles: [[stride(37)]] array<Particle>;
+    particles: [[stride(40)]] array<Particle>;
 };
 
 [[group(0), binding(0)]] var<uniform> params: SimParams;
@@ -65,5 +65,5 @@ fn main([[builtin(global_invocation_id)]] global_invocation_id: vec3<u32>) {
     let acc = getAcc(aPos, index, total);
     aVel = aVel + acc * params.dt / 2.0;
 
-    particlesDst.particles[index] = Particle(aPos.x, aPos.y, aPos.z, aVel.x, aVel.y, aVel.z, acc.x, acc.y, acc.z);
+    particlesDst.particles[index] = Particle(aPos.x, aPos.y, aPos.z, aVel.x, aVel.y, aVel.z, acc.x, acc.y, acc.z, _p.mass);
 }

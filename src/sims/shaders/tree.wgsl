@@ -9,6 +9,7 @@ struct Particle {
     px: f32; py: f32; pz: f32;
     vx: f32; vy: f32; vz: f32;
     ax: f32; ay: f32; az: f32;
+    mass: f32;
 };
 
 struct SimParams {
@@ -24,7 +25,7 @@ struct TreeSimParams {
 };
 
 struct Particles {
-    particles: [[stride(36)]] array<Particle>;
+    particles: [[stride(40)]] array<Particle>;
 };
 
 struct Octants {
@@ -54,7 +55,7 @@ fn getAcc(aPos: vec3<f32>, index: u32, total: u32) -> vec3<f32> {
         let top_size = size_stack[size - 1u];
         let cog = vec3<f32>(top_oct.cx, top_oct.cy, top_oct.cz);
         let dist = distance(aPos, cog);
-        if (dist < 0.00001 & top_oct.bodies == 1u) {
+        if ( top_oct.bodies == 1u && dist < 0.000001 ) {
             // same body so skip calculation
             size = size - 1u;
             continue;
@@ -106,5 +107,5 @@ fn main([[builtin(global_invocation_id)]] global_invocation_id: vec3<u32>) {
     let acc = getAcc(aPos, index, total);
     aVel = aVel + acc * params.dt / 2.0;
 
-    particlesDst.particles[index] = Particle(aPos.x, aPos.y, aPos.z, aVel.x, aVel.y, aVel.z, acc.x, acc.y, acc.z);
+    particlesDst.particles[index] = Particle(aPos.x, aPos.y, aPos.z, aVel.x, aVel.y, aVel.z, acc.x, acc.y, acc.z, _p.mass);
 }

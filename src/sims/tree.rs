@@ -455,10 +455,10 @@ impl TreeSim {
                 match part_count {
                     1 => {
                         // leaf node (complete octant processing and finish)
+                        let leaf_particle = particle_data[child_part.particles_ix.as_ref().unwrap()[0]];
                         let mut leaf_octant = Octant {
-                            cog: particle_data[child_part.particles_ix.as_ref().unwrap()[0]]
-                                .position,
-                            mass: 1.0,
+                            cog: leaf_particle.position,
+                            mass: leaf_particle.mass,
                             bodies: 1,
                             ..Default::default()
                         };
