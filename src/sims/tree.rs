@@ -365,6 +365,7 @@ impl TreeSim {
                     position: [1.0; 3],
                     velocity: [0.0; 3],
                     acceleration: [0.0; 3],
+                    mass: 1.0,
                 },
                 |a, b| Particle {
                     position: [
@@ -374,6 +375,7 @@ impl TreeSim {
                     ],
                     velocity: [0.0; 3],
                     acceleration: [0.0; 3],
+                    mass: 1.0,
                 },
             )
             .position;

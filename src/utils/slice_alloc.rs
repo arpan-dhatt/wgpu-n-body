@@ -1,9 +1,10 @@
 use std::{
+    marker::PhantomData,
     slice,
     sync::{
         atomic::{AtomicUsize, Ordering},
         Arc,
-    }, marker::PhantomData,
+    },
 };
 
 /// Adds immutable data to a slice sequentially and concurrently.
@@ -17,7 +18,7 @@ pub struct SliceAlloc<'a, T> {
 #[derive(Debug)]
 pub struct Reserve<'a> {
     ix: usize,
-    phantom: PhantomData<&'a ()>
+    phantom: PhantomData<&'a ()>,
 }
 
 impl From<Reserve<'_>> for usize {

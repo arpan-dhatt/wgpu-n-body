@@ -1,6 +1,10 @@
 use std::time::Instant;
 
-use wgpu_n_body::{runners::OfflineHeadless, inits, sims::{SimParams, TreeSim}};
+use wgpu_n_body::{
+    inits,
+    runners::OfflineHeadless,
+    sims::{SimParams, TreeSim},
+};
 
 #[global_allocator]
 static ALLOC: jemallocator::Jemalloc = jemallocator::Jemalloc;
@@ -15,7 +19,11 @@ fn main() {
         dt: 0.016,
     };
     println!("Initializing Simulation");
-    let mut runner = pollster::block_on(OfflineHeadless::<TreeSim>::new(sim_params, inits::uniform_init)).unwrap();
+    let mut runner = pollster::block_on(OfflineHeadless::<TreeSim>::new(
+        sim_params,
+        inits::uniform_init,
+    ))
+    .unwrap();
     println!("Running Simulation");
     for _ in 0..STEPS {
         let now = Instant::now();

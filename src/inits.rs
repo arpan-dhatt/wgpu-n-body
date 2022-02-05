@@ -20,6 +20,7 @@ pub fn uniform_init(sim_params: &SimParams) -> Vec<Particle> {
                 pos_unif.sample(&mut rng) * 0.001,
             ],
             acceleration: [0.0, 0.0, 0.0],
+            mass: 1.0,
         });
     }
     initial_particles
@@ -39,7 +40,8 @@ pub fn disc_init(sim_params: &SimParams) -> Vec<Particle> {
         initial_particles.push(Particle {
             position: pos.to_array(),
             velocity: vel.to_array(),
-            acceleration: [0.0, 0.0, 0.0],
+            acceleration: [0.0; 3],
+            mass: 1.0,
         })
     }
     initial_particles
@@ -74,6 +76,7 @@ pub fn spherical_init(sim_params: &SimParams) -> Vec<Particle> {
             position: pos.to_array(),
             velocity: vel.to_array(),
             acceleration: [0.0; 3],
+            mass: 1.0,
         });
     }
     initial_particles

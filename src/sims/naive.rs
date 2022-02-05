@@ -142,13 +142,13 @@ impl Simulator for NaiveSim {
     }
 
     fn encode(&mut self, device: &wgpu::Device, _queue: &wgpu::Queue) -> wgpu::CommandEncoder {
-        let mut encoder = device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("Compute and Render Command"),
-            });
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("Compute and Render Command"),
+        });
         encoder.push_debug_group("n-body movement");
         {
-            let mut cpass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor { label: None });
+            let mut cpass =
+                encoder.begin_compute_pass(&wgpu::ComputePassDescriptor { label: None });
             cpass.set_pipeline(&self.compute_pipeline);
             cpass.set_bind_group(0, &self.particle_bind_groups[self.step_num % 2], &[]);
             cpass.dispatch(self.work_group_count, 1, 1);

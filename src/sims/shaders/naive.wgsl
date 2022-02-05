@@ -2,6 +2,7 @@ struct Particle {
     px: f32; py: f32; pz: f32;
     vx: f32; vy: f32; vz: f32;
     ax: f32; ay: f32; az: f32;
+    mass: f32;
 };
 
 struct SimParams {
@@ -12,7 +13,7 @@ struct SimParams {
 };
 
 struct Particles {
-    particles: [[stride(36)]] array<Particle>;
+    particles: [[stride(37)]] array<Particle>;
 };
 
 [[group(0), binding(0)]] var<uniform> params: SimParams;
@@ -35,7 +36,7 @@ fn getAcc(aPos: vec3<f32>, index: u32, total: u32) -> vec3<f32> {
         var bVel = vec3<f32>(_q.vx, _q.vy, _q.vz);
 
         let r: f32 = distance(aPos, bPos);
-        let force: vec3<f32> = params.g / (r * r * r + params.e) * normalize(bPos - aPos); 
+        let force: vec3<f32> = _q.mass * params.g / (r * r * r + params.e) * normalize(bPos - aPos); 
         let _acc: vec3<f32> = force;
         acc = acc + _acc * params.dt;
 

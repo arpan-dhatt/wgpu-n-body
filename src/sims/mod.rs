@@ -12,6 +12,7 @@ pub struct Particle {
     pub position: [f32; 3],
     pub velocity: [f32; 3],
     pub acceleration: [f32; 3],
+    pub mass: f32,
 }
 
 impl Particle {

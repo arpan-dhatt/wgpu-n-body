@@ -1,4 +1,4 @@
-use criterion::{criterion_group, criterion_main, Criterion, BenchmarkId, Throughput};
+use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use wgpu_n_body::{
     inits,
     runners::OfflineHeadless,
@@ -18,7 +18,11 @@ fn criterion_benchmark(c: &mut Criterion) {
                 particle_num: size as u32,
                 ..SimParams::default()
             };
-            let mut runner = pollster::block_on(OfflineHeadless::<NaiveSim>::new(sim_params, inits::uniform_init)).unwrap();
+            let mut runner = pollster::block_on(OfflineHeadless::<NaiveSim>::new(
+                sim_params,
+                inits::uniform_init,
+            ))
+            .unwrap();
             b.iter(|| runner.step());
         });
     }
@@ -32,7 +36,11 @@ fn criterion_benchmark(c: &mut Criterion) {
                 particle_num: size as u32,
                 ..SimParams::default()
             };
-            let mut runner = pollster::block_on(OfflineHeadless::<TreeSim>::new(sim_params, inits::uniform_init)).unwrap();
+            let mut runner = pollster::block_on(OfflineHeadless::<TreeSim>::new(
+                sim_params,
+                inits::uniform_init,
+            ))
+            .unwrap();
             b.iter(|| runner.step());
         });
     }
