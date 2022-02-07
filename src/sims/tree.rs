@@ -1,4 +1,4 @@
-use std::{borrow::Cow, collections::VecDeque};
+use std::{borrow::Cow, collections::VecDeque, ops::DerefMut, time::Instant};
 
 use rayon::prelude::*;
 use wgpu::util::DeviceExt;
@@ -100,7 +100,7 @@ impl Simulator for TreeSim {
                             min_binding_size: wgpu::BufferSize::new(
                                 (sim_params.particle_num as usize
                                     * 4
-                                    * std::mem::size_of::<Octant>())
+                                    * std::mem::size_of::<OctantRaw>())
                                     as _,
                             ),
                         },
@@ -169,7 +169,7 @@ impl Simulator for TreeSim {
 
         let tree_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Completed Tree Buffer"),
-            size: (std::mem::size_of::<Octant>() as u32 * sim_params.particle_num * 4) as _,
+            size: (std::mem::size_of::<OctantRaw>() as u32 * sim_params.particle_num * 4) as _,
             usage: wgpu::BufferUsages::VERTEX
                 | wgpu::BufferUsages::STORAGE
                 | wgpu::BufferUsages::COPY_DST,
@@ -207,7 +207,7 @@ impl Simulator for TreeSim {
 
         let tree_staging_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Tree Staging Buffer"),
-            size: (std::mem::size_of::<Octant>() as u32 * sim_params.particle_num * 4) as _,
+            size: (std::mem::size_of::<OctantRaw>() as u32 * sim_params.particle_num * 4) as _,
             usage: wgpu::BufferUsages::MAP_WRITE | wgpu::BufferUsages::COPY_SRC,
             mapped_at_creation: false,
         });
@@ -266,16 +266,16 @@ impl Simulator for TreeSim {
         let particle_read_data: &[Particle] = bytemuck::cast_slice(&read_buffer_mapped);
         let particle_write_data: &mut [Particle] =
             bytemuck::cast_slice_mut(&mut write_buffer_mapped);
-        let tree_staging_data: &mut [Octant] = bytemuck::cast_slice_mut(&mut tree_staging_mapped);
+        let tree_staging_data: &mut [OctantRaw] =
+            bytemuck::cast_slice_mut(&mut tree_staging_mapped);
 
-        let octree_nodes = self.build_tree(
-            particle_read_data,
-            tree_staging_data,
-            queue,
-            self.tree_sim_params,
-        );
-
-        Self::sort_particles(particle_read_data, particle_write_data, tree_staging_data);
+        let now = Instant::now();
+        let mut root_node = self.build_tree(particle_read_data, queue, self.tree_sim_params);
+        println!("Tree Construction: {} µs", now.elapsed().as_micros());
+        let now = Instant::now();
+        Self::sort_particles_count_nodes(&mut root_node, particle_read_data, particle_write_data);
+        println!("Particle Sort and Node Count: {} µs ({} nodes)", now.elapsed().as_micros(), root_node.node_count);
+        std::process::exit(0);
 
         drop(read_buffer_mapped);
         self.particle_read_buffer.unmap();
@@ -307,7 +307,7 @@ impl Simulator for TreeSim {
                 0,
                 &self.tree_buffer,
                 0,
-                (std::mem::size_of::<Octant>() as u32 * octree_nodes as u32) as _,
+                (std::mem::size_of::<OctantRaw>() as u32 * 100 as u32) as _,
             );
         }
         encoder.pop_debug_group();
@@ -342,21 +342,20 @@ impl Simulator for TreeSim {
 type BVec<'a, T> = bumpalo::collections::Vec<'a, T>;
 
 #[derive(Debug)]
-struct Partition<'a> {
+struct Partition<'a, 'b> {
     center: [f32; 3],
     width: f32,
-    octant_ix: Option<Reserve<'a>>,
-    particles_ix: Option<BVec<'a, usize>>,
+    octant: Option<&'a mut OctantNode>,
+    particles_ix: Option<BVec<'b, usize>>,
 }
 
 impl TreeSim {
     fn build_tree(
         &self,
         particle_data: &[Particle],
-        tree_data: &mut [Octant],
         queue: &wgpu::Queue,
         mut tree_sim_params: TreeSimParams,
-    ) -> usize {
+    ) -> OctantNode {
         let bound = particle_data
             .par_iter()
             .cloned()
@@ -391,17 +390,16 @@ impl TreeSim {
             bytemuck::cast_slice(&[tree_sim_params]),
         );
         let bound = [bound; 3];
+        // create root node
+        let mut root = OctantNode::default();
         let herd_member = self.alloc_arena.get();
         let member_bump = herd_member.as_bump();
         let mut part_queue = VecDeque::new();
-        // initialize slice allocator
-        let mut tree_alloc = SliceAlloc::wrap(tree_data);
-        let root_ix = tree_alloc.write(Octant::default());
         // create root partition (all particles)
         part_queue.push_back(Partition {
             center: [0.0; 3],
             width: bound[0] * 2.0,
-            octant_ix: Some(root_ix),
+            octant: Some(&mut root),
             particles_ix: Some(BVec::from_iter_in(0..particle_data.len(), member_bump)),
         });
         // while there are partitions to process
@@ -411,19 +409,21 @@ impl TreeSim {
                 .map(|ix| Partition {
                     center: Self::shift_node_center(&part.center, part.width, ix),
                     width: part.width / 2.0,
-                    octant_ix: None,
+                    octant: None,
                     particles_ix: None,
                 })
                 .collect();
-            // partition's octant
-            let mut octant = Octant::default();
-            // calculate octant data and particle child subdivisions
+            // partition's octant (to be assigned to correct reference later)
+            let mut octant = part.octant.unwrap();
+            // calculate octant data and particle child subdivisions on the stack
+            let mut cog = [0.0; 3];
+            let mut mass = 0.0;
             for particle_ix in part.particles_ix.as_ref().unwrap() {
                 let p = particle_data[*particle_ix];
-                octant.cog[0] += p.position[0];
-                octant.cog[1] += p.position[1];
-                octant.cog[2] += p.position[2];
-                octant.mass += 1.0;
+                cog[0] += p.position[0];
+                cog[1] += p.position[1];
+                cog[2] += p.position[2];
+                mass += p.mass;
                 let child_ix = Self::decide_octant(&part.center, &p.position);
                 if let Some(ref mut particles_ix) = child_partitions[child_ix].particles_ix {
                     // child particles list already exists
@@ -434,12 +434,17 @@ impl TreeSim {
                         Some(BVec::from_iter_in(Some(*particle_ix), member_bump));
                 }
             }
+            cog[0] /= octant.mass;
+            cog[1] /= octant.mass;
+            cog[2] /= octant.mass;
+            // assign finalized values to heap-allocated node
+            octant.cog = cog;
+            octant.mass = mass;
             octant.bodies += part.particles_ix.unwrap().len() as u32;
-            octant.cog[0] /= octant.mass;
-            octant.cog[1] /= octant.mass;
-            octant.cog[2] /= octant.mass;
             // only add new partitions if non-leaf node
-            for (i, mut child_part) in child_partitions.into_iter().enumerate() {
+            for (mut child_part, child_ref) in
+                child_partitions.into_iter().zip(octant.children.iter_mut())
+            {
                 let part_count = child_part
                     .particles_ix
                     .as_ref()
@@ -449,34 +454,31 @@ impl TreeSim {
                 if part_count == 0 {
                     continue;
                 }
-                let child_oct_handle = tree_alloc.write(Octant::default());
-                let child_oct_ix: usize = (&child_oct_handle).into();
-                octant.children[i] = child_oct_ix as u32;
                 match part_count {
                     1 => {
                         // leaf node (complete octant processing and finish)
-                        let leaf_particle = particle_data[child_part.particles_ix.as_ref().unwrap()[0]];
-                        let mut leaf_octant = Octant {
+                        let leaf_particle =
+                            particle_data[child_part.particles_ix.as_ref().unwrap()[0]];
+                        let leaf_octant = OctantNode {
                             cog: leaf_particle.position,
                             mass: leaf_particle.mass,
                             bodies: 1,
+                            // set first child to particle index for sorting particles by locality
+                            one_body: child_part.particles_ix.unwrap()[0],
                             ..Default::default()
                         };
-                        // set first child to particle index for sorting particles by locality
-                        leaf_octant.children[0] = child_part.particles_ix.unwrap()[0] as u32;
-                        tree_alloc[child_oct_handle] = leaf_octant;
+                        *child_ref = Some(Box::new(leaf_octant));
                     }
                     _ => {
                         // non-leaf node
-                        child_part.octant_ix = Some(child_oct_handle);
+                        *child_ref = Some(Box::new(OctantNode::default()));
+                        child_part.octant = Some(child_ref.as_mut().unwrap().deref_mut());
                         part_queue.push_back(child_part);
                     }
                 };
             }
-            // write octant to array
-            tree_alloc[part.octant_ix.unwrap()] = octant;
         }
-        tree_alloc.len()
+        root
     }
 
     #[inline]
@@ -495,50 +497,56 @@ impl TreeSim {
         ]
     }
 
-    fn sort_particles(
+    /// Wrapper for [`sort_particles_count_nodes_recursive`] function.
+    fn sort_particles_count_nodes(
+        node: &mut OctantNode,
         particles_src: &[Particle],
         particles_dst: &mut [Particle],
-        tree_data: &[Octant],
     ) {
-        Self::sort_particles_recursive(tree_data[0], particles_src, particles_dst, tree_data);
+        node.node_count =
+            Self::sort_particles_count_nodes_recursive(node, particles_src, particles_dst);
     }
 
-    fn sort_particles_recursive(
-        octant: Octant,
+    /// Sorts particles according to an in-order traversal of the octree and counts the number of
+    /// nodes in a subtree with the given node the root
+    fn sort_particles_count_nodes_recursive(
+        node: &mut OctantNode,
         particles_src: &[Particle],
         particles_dst: &mut [Particle],
-        tree_data: &[Octant],
-    ) {
-        if octant.bodies == 1 {
-            particles_dst[0] = particles_src[octant.children[0] as usize];
+    ) -> usize {
+        if node.bodies == 1 {
+            particles_dst[0] = particles_src[node.one_body];
+            node.node_count = 1;
+            return 1;
         } else {
             let mut slices = vec![];
             let mut remaining = particles_dst;
-            for child_ix in octant.children {
-                if child_ix != 0 {
-                    let child_octant = tree_data[child_ix as usize];
-                    let (a_slice, b_slice) = remaining.split_at_mut(child_octant.bodies as usize);
+            for child_node in node.children.iter_mut() {
+                if let Some(child_node) = child_node.as_mut().map(|o| o.as_mut()) {
+                    let (a_slice, b_slice) = remaining.split_at_mut(child_node.bodies as usize);
                     remaining = b_slice;
-                    slices.push((child_octant, a_slice));
+                    slices.push((child_node, a_slice));
                 }
             }
-            slices
-                .par_iter_mut()
-                .for_each(|(child_octant, child_slice)| {
-                    Self::sort_particles_recursive(
-                        *child_octant,
+            let num_descendants: usize = slices
+                .into_par_iter()
+                .map(|(child_node, child_slice)| {
+                    Self::sort_particles_count_nodes_recursive(
+                        child_node,
                         particles_src,
                         child_slice,
-                        tree_data,
-                    );
-                });
+                    )
+                })
+                .sum();
+            node.node_count = num_descendants + 1;
+            return node.node_count;
         }
     }
 }
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, Default, bytemuck::Pod, bytemuck::Zeroable)]
-struct Octant {
+struct OctantRaw {
     /// Child Octant Positions:
     /// ```
     /// Front: -z   Back: +z
@@ -553,6 +561,17 @@ struct Octant {
     // if bodies == 1 then read data from particles array (first child ix)
     bodies: u32,
     children: [u32; 8],
+}
+
+#[derive(Clone, Debug, Default)]
+struct OctantNode {
+    cog: [f32; 3],
+    mass: f32,
+    bodies: u32,
+    node_count: usize,
+    children: [Option<Box<OctantNode>>; 8],
+    // 0 unless bodies == 1, then used to indicate body index in particles array for sorting
+    one_body: usize,
 }
 
 #[repr(C)]
