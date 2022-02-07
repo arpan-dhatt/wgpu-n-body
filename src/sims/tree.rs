@@ -434,9 +434,9 @@ impl TreeSim {
                         Some(BVec::from_iter_in(Some(*particle_ix), member_bump));
                 }
             }
-            cog[0] /= octant.mass;
-            cog[1] /= octant.mass;
-            cog[2] /= octant.mass;
+            cog[0] /= mass;
+            cog[1] /= mass;
+            cog[2] /= mass;
             // assign finalized values to heap-allocated node
             octant.cog = cog;
             octant.mass = mass;
