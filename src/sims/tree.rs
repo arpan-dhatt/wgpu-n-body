@@ -274,8 +274,14 @@ impl Simulator for TreeSim {
         println!("Tree Construction: {} µs", now.elapsed().as_micros());
         let now = Instant::now();
         Self::sort_particles_count_nodes(&mut root_node, particle_read_data, particle_write_data);
-        println!("Particle Sort and Node Count: {} µs ({} nodes)", now.elapsed().as_micros(), root_node.node_count);
-        std::process::exit(0);
+        println!(
+            "Particle Sort and Node Count: {} µs ({} nodes)",
+            now.elapsed().as_micros(),
+            root_node.node_count
+        );
+        let now = Instant::now();
+        Self::flatten_octree(&root_node, tree_staging_data, TraversalMode::PreOrder);
+        println!("Octree Flattening: {} µs", now.elapsed().as_micros());
 
         drop(read_buffer_mapped);
         self.particle_read_buffer.unmap();
@@ -307,7 +313,7 @@ impl Simulator for TreeSim {
                 0,
                 &self.tree_buffer,
                 0,
-                (std::mem::size_of::<OctantRaw>() as u32 * 100 as u32) as _,
+                (std::mem::size_of::<OctantRaw>() as u32 * root_node.node_count as u32) as _,
             );
         }
         encoder.pop_debug_group();
@@ -499,12 +505,12 @@ impl TreeSim {
 
     /// Wrapper for [`sort_particles_count_nodes_recursive`] function.
     fn sort_particles_count_nodes(
-        node: &mut OctantNode,
+        root: &mut OctantNode,
         particles_src: &[Particle],
         particles_dst: &mut [Particle],
     ) {
-        node.node_count =
-            Self::sort_particles_count_nodes_recursive(node, particles_src, particles_dst);
+        root.node_count =
+            Self::sort_particles_count_nodes_recursive(root, particles_src, particles_dst);
     }
 
     /// Sorts particles according to an in-order traversal of the octree and counts the number of
@@ -522,7 +528,7 @@ impl TreeSim {
             let mut slices = vec![];
             let mut remaining = particles_dst;
             for child_node in node.children.iter_mut() {
-                if let Some(child_node) = child_node.as_mut().map(|o| o.as_mut()) {
+                if let Some(child_node) = child_node.as_mut() {
                     let (a_slice, b_slice) = remaining.split_at_mut(child_node.bodies as usize);
                     remaining = b_slice;
                     slices.push((child_node, a_slice));
@@ -542,6 +548,72 @@ impl TreeSim {
             return node.node_count;
         }
     }
+
+    /// Places an octree into a raw octant array, returning the number of spots in the
+    /// [`OctantRaw`] slice were used to write the given node and its descendants.
+    ///
+    /// # Arguments
+    ///
+    /// * `node` - root node of the octree subtree
+    /// * `tree_dst` - sub-slice of original raw slice to place tree node into
+    /// * `traversal` - the method in which to place nodes into the tree
+    fn flatten_octree(node: &OctantNode, tree_dst: &mut [OctantRaw], traversal: TraversalMode) {
+        match traversal {
+            TraversalMode::LevelOrder => Self::flatten_octree_level_order(node, tree_dst, 0),
+            TraversalMode::PreOrder => Self::flatten_octree_pre_order(node, tree_dst, 0),
+        }
+    }
+
+    fn flatten_octree_level_order(node: &OctantNode, tree_dst: &mut [OctantRaw], offset: u32) {}
+
+    /// Parallelized placement of octree nodes into slice in pre-order
+    fn flatten_octree_pre_order(node: &OctantNode, tree_dst: &mut [OctantRaw], offset: usize) {
+        // convert most octant node data to raw format
+        let mut raw: OctantRaw = node.into();
+        if raw.bodies == 1 {
+            tree_dst[0] = raw;
+            return;
+        }
+        let mut slices = vec![];
+        // reserve one spot for subtree root node
+        let (tree_dst, mut remaining) = tree_dst.split_at_mut(1);
+        // set global offset for child
+        let mut child_offset = offset + 1;
+        for child_node in node.children.iter() {
+            if let Some(child_node) = child_node.as_ref() {
+                let (a_slice, b_slice) = remaining.split_at_mut(child_node.node_count);
+                remaining = b_slice;
+                slices.push(Some((child_node, a_slice, child_offset)));
+                child_offset += child_node.node_count;
+            } else {
+                slices.push(None)
+            }
+        }
+        slices.into_par_iter().zip(&mut raw.children).for_each(|(opt, child_idx)| {
+            if let Some((child_node, child_slice, child_offset)) = opt {
+                // assign global child idx to raw octant
+                *child_idx = child_offset as u32;
+                Self::flatten_octree_pre_order(&child_node, child_slice, child_offset);
+            }
+        });
+        tree_dst[0] = raw;
+    }
+}
+
+enum TraversalMode {
+    LevelOrder,
+    PreOrder,
+}
+
+impl From<&OctantNode> for OctantRaw {
+    fn from(o: &OctantNode) -> Self {
+        OctantRaw {
+            cog: o.cog,
+            mass: o.mass,
+            bodies: o.bodies,
+            children: [0; 8],
+        }
+    }
 }
 
 #[repr(C)]
@@ -558,7 +630,6 @@ struct OctantRaw {
     /// ```
     cog: [f32; 3],
     mass: f32,
-    // if bodies == 1 then read data from particles array (first child ix)
     bodies: u32,
     children: [u32; 8],
 }

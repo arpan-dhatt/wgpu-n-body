@@ -24,15 +24,15 @@ fn main() {
     window.focus_window();
 
     let sim_params = sims::SimParams {
-        particle_num: 50000,
-        g: 0.00005,
+        particle_num: 100000,
+        g: 0.0001,
         e: 0.0001,
-        dt: 0.0016,
+        dt: 0.016,
     };
     let mut state = pollster::block_on(runners::OnlineRenderer::<TreeSim>::new(
         &window,
         sim_params,
-        inits::disc_init,
+        inits::uniform_init,
     ))
     .unwrap();
 
