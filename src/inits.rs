@@ -34,7 +34,7 @@ pub fn disc_init(sim_params: &SimParams) -> Vec<Particle> {
         position: [0.0; 3],
         velocity: [0.0; 3],
         acceleration: [0.0; 3],
-        mass: 50000.0,
+        mass: 100000.0,
     });
     for _ in 1..sim_params.particle_num {
         let mut pos: Vec3A = Vec3A::new(unif.sample(&mut rng), unif.sample(&mut rng), 0.0);
@@ -42,7 +42,7 @@ pub fn disc_init(sim_params: &SimParams) -> Vec<Particle> {
             pos = Vec3A::new(unif.sample(&mut rng), unif.sample(&mut rng), unif.sample(&mut rng) * 0.1);
         }
         pos *= pos.length();
-        let vel = (sim_params.g * 100.0 / pos.length()).sqrt() * pos.cross(Vec3A::Z).normalize();
+        let vel = (sim_params.g * 1000.0 / pos.length()).sqrt() * pos.cross(Vec3A::Z).normalize();
         initial_particles.push(Particle {
             position: pos.to_array(),
             velocity: vel.to_array(),

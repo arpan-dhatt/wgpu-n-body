@@ -423,7 +423,7 @@ impl TreeSim {
                 octant.cog[0] += p.position[0];
                 octant.cog[1] += p.position[1];
                 octant.cog[2] += p.position[2];
-                octant.mass += 1.0;
+                octant.mass += p.mass;
                 let child_ix = Self::decide_octant(&part.center, &p.position);
                 if let Some(ref mut particles_ix) = child_partitions[child_ix].particles_ix {
                     // child particles list already exists
