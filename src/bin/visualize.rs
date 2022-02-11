@@ -1,6 +1,6 @@
 use wgpu_n_body::{
     inits, runners,
-    sims::{self, TreeSim},
+    sims::{self, TreeSim, AddParams},
 };
 
 use winit::{
@@ -32,6 +32,7 @@ fn main() {
     let mut state = pollster::block_on(runners::OnlineRenderer::<TreeSim>::new(
         &window,
         sim_params,
+        AddParams::TreeSimParams { theta: 0.75 },
         inits::disc_init,
     ))
     .unwrap();

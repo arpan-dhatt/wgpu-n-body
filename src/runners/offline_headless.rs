@@ -16,6 +16,7 @@ where
 {
     pub async fn new(
         sim_params: sims::SimParams,
+        add_params: sims::AddParams,
         init_fn: fn(&sims::SimParams) -> Vec<sims::Particle>,
     ) -> anyhow::Result<Self> {
         let instance = wgpu::Instance::new(wgpu::Backends::all());
@@ -27,25 +28,12 @@ where
             })
             .await
             .context("Failed to get WGPU Adapter")?;
-        let (device, queue) = adapter
-            .request_device(
-                &wgpu::DeviceDescriptor {
-                    label: None,
-                    features: wgpu::Features::empty(),
-                    limits: wgpu::Limits {
-                        max_storage_buffer_binding_size: 1073741824,
-                        ..wgpu::Limits::default()
-                    },
-                },
-                None,
-            )
-            .await
-            .context("Failed to create logical device and queue")?;
-
-        let sim = Simulator::new(&device, sim_params, init_fn)?;
+        let (device, queue, mappable_primary_buffers) = super::get_device_and_queue(&adapter).await?;
+        let sim = Simulator::new(&device, sim_params, add_params, mappable_primary_buffers, init_fn)?;
 
         Ok(Self { sim, device, queue })
     }
+
 
     pub fn step(&mut self) {
         let encoder = self.sim.encode(&self.device, &self.queue);

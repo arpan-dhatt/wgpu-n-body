@@ -1,5 +1,6 @@
 use std::borrow::Cow;
 
+use super::AddParams;
 use super::Particle;
 use super::SimParams;
 use super::Simulator;
@@ -19,6 +20,8 @@ impl Simulator for NaiveSim {
     fn new(
         device: &wgpu::Device,
         sim_params: SimParams,
+        _add_params: AddParams,
+        _mappable_primary_buffers: bool,
         init_fn: fn(&SimParams) -> Vec<Particle>,
     ) -> Result<Self> {
         let sim_params_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {

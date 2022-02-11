@@ -191,6 +191,7 @@ where
     pub async fn new(
         win: &Window,
         sim_params: sims::SimParams,
+        add_params: sims::AddParams,
         init_fn: fn(&sims::SimParams) -> Vec<sims::Particle>,
     ) -> anyhow::Result<Self> {
         let size = win.inner_size();
@@ -205,17 +206,7 @@ where
             })
             .await
             .context("Failed to get WGPU Adapter")?;
-        let (device, queue) = adapter
-            .request_device(
-                &wgpu::DeviceDescriptor {
-                    label: None,
-                    features: wgpu::Features::empty(),
-                    limits: wgpu::Limits::default(),
-                },
-                None,
-            )
-            .await
-            .context("Failed to create logical device and queue")?;
+        let (device, queue, mappable_primary_buffers) = super::get_device_and_queue(&adapter).await?;
 
         let config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
@@ -228,7 +219,7 @@ where
         };
         surface.configure(&device, &config);
 
-        let sim = Simulator::new(&device, sim_params, init_fn)?;
+        let sim = Simulator::new(&device, sim_params, add_params, mappable_primary_buffers, init_fn)?;
 
         let vertex_buffer_data: [f32; 6] = [-0.006, -0.006, 0.006, -0.006, 0.00, 0.006];
         let vertices_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {

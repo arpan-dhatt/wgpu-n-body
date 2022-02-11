@@ -1,11 +1,12 @@
 use std::{borrow::Cow, collections::VecDeque};
 
+use log::warn;
 use rayon::prelude::*;
 use wgpu::util::DeviceExt;
 
 use crate::utils::slice_alloc::{Reserve, SliceAlloc};
 
-use super::{Particle, SimParams, Simulator};
+use super::{AddParams, Particle, SimParams, Simulator};
 
 pub struct TreeSim {
     sim_params: SimParams,
@@ -13,13 +14,14 @@ pub struct TreeSim {
     tree_sim_params_buffer: wgpu::Buffer,
     particle_bind_groups: Vec<wgpu::BindGroup>,
     particle_buffers: Vec<wgpu::Buffer>,
-    particle_read_buffer: wgpu::Buffer,
+    particle_read_buffer: Option<wgpu::Buffer>,
     particle_write_buffer: wgpu::Buffer,
     tree_buffer: wgpu::Buffer,
-    tree_staging_buffer: wgpu::Buffer,
+    tree_staging_buffer: Option<wgpu::Buffer>,
     compute_pipeline: wgpu::ComputePipeline,
     work_group_count: u32,
     step_num: usize,
+    mappable_primary_buffers: bool,
     alloc_arena: bumpalo::Bump,
 }
 
@@ -27,7 +29,9 @@ impl Simulator for TreeSim {
     fn new(
         device: &wgpu::Device,
         sim_params: SimParams,
-        init_fn: fn(&SimParams) -> Vec<super::Particle>,
+        add_params: AddParams,
+        mappable_primary_buffers: bool,
+        init_fn: fn(&SimParams) -> Vec<Particle>,
     ) -> anyhow::Result<Self> {
         let sim_params_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Sim Params Buffer"),
@@ -36,7 +40,13 @@ impl Simulator for TreeSim {
         });
 
         let tree_sim_params = TreeSimParams {
-            theta: 0.75,
+            theta: match add_params {
+                AddParams::TreeSimParams { theta } => theta,
+                _ => {
+                    warn!("No Theta Value Provided, using default: 0.75");
+                    0.75
+                }
+            },
             root_width: 2.0,
         };
         let tree_sim_params_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -148,17 +158,25 @@ impl Simulator for TreeSim {
                     usage: wgpu::BufferUsages::VERTEX
                         | wgpu::BufferUsages::STORAGE
                         | wgpu::BufferUsages::COPY_SRC
-                        | wgpu::BufferUsages::COPY_DST,
+                        | wgpu::BufferUsages::COPY_DST
+                        | match mappable_primary_buffers {
+                            true => wgpu::BufferUsages::MAP_READ,
+                            false => wgpu::BufferUsages::empty(),
+                        },
                 }),
             );
         }
 
-        let particle_read_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("Particle Read Buffer"),
-            size: (std::mem::size_of::<Particle>() as u32 * sim_params.particle_num) as _,
-            usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
+        let particle_read_buffer = if !mappable_primary_buffers {
+            Some(device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("Particle Read Buffer"),
+                size: (std::mem::size_of::<Particle>() as u32 * sim_params.particle_num) as _,
+                usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            }))
+        } else {
+            None
+        };
 
         let particle_write_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Particle Write Buffer"),
@@ -172,7 +190,11 @@ impl Simulator for TreeSim {
             size: (std::mem::size_of::<Octant>() as u32 * sim_params.particle_num * 4) as _,
             usage: wgpu::BufferUsages::VERTEX
                 | wgpu::BufferUsages::STORAGE
-                | wgpu::BufferUsages::COPY_DST,
+                | wgpu::BufferUsages::COPY_DST
+                | match mappable_primary_buffers {
+                    true => wgpu::BufferUsages::MAP_WRITE,
+                    false => wgpu::BufferUsages::empty(),
+                },
             mapped_at_creation: false,
         });
 
@@ -205,12 +227,16 @@ impl Simulator for TreeSim {
             }));
         }
 
-        let tree_staging_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("Tree Staging Buffer"),
-            size: (std::mem::size_of::<Octant>() as u32 * sim_params.particle_num * 4) as _,
-            usage: wgpu::BufferUsages::MAP_WRITE | wgpu::BufferUsages::COPY_SRC,
-            mapped_at_creation: false,
-        });
+        let tree_staging_buffer = if !mappable_primary_buffers {
+            Some(device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("Tree Staging Buffer"),
+                size: (std::mem::size_of::<Octant>() as u32 * sim_params.particle_num * 4) as _,
+                usage: wgpu::BufferUsages::MAP_WRITE | wgpu::BufferUsages::COPY_SRC,
+                mapped_at_creation: false,
+            }))
+        } else {
+            None
+        };
 
         let work_group_count =
             ((sim_params.particle_num as f32) / (super::PARTICLES_PER_GROUP as f32)).ceil() as u32;
@@ -228,29 +254,15 @@ impl Simulator for TreeSim {
             compute_pipeline,
             work_group_count,
             step_num: 0,
+            mappable_primary_buffers,
             alloc_arena: bumpalo::Bump::new(),
         })
     }
 
     fn encode(&mut self, device: &wgpu::Device, queue: &wgpu::Queue) -> wgpu::CommandEncoder {
-        let mut read_encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("Particle Data Reader Command"),
-        });
-        {
-            read_encoder.copy_buffer_to_buffer(
-                &self.particle_buffers[self.step_num % 2],
-                0,
-                &self.particle_read_buffer,
-                0,
-                (std::mem::size_of::<Particle>() as u32 * self.sim_params.particle_num) as _,
-            );
-        }
-        queue.submit(Some(read_encoder.finish()));
-
-        let read_buffer_slice = self.particle_read_buffer.slice(..);
+        let read_buffer_slice = self.get_particle_read_slice(device, queue);
         let write_buffer_slice = self.particle_write_buffer.slice(..);
-        let tree_staging_slice = self.tree_staging_buffer.slice(..);
-
+        let tree_staging_slice = self.get_tree_write_slice(device, queue);
         let read_buffer_future = read_buffer_slice.map_async(wgpu::MapMode::Read);
         let write_buffer_future = write_buffer_slice.map_async(wgpu::MapMode::Write);
         let tree_staging_future = tree_staging_slice.map_async(wgpu::MapMode::Write);
@@ -258,7 +270,6 @@ impl Simulator for TreeSim {
         pollster::block_on(read_buffer_future).unwrap();
         pollster::block_on(write_buffer_future).unwrap();
         pollster::block_on(tree_staging_future).unwrap();
-
         let read_buffer_mapped = read_buffer_slice.get_mapped_range();
         let mut write_buffer_mapped = write_buffer_slice.get_mapped_range_mut();
         let mut tree_staging_mapped = tree_staging_slice.get_mapped_range_mut();
@@ -277,12 +288,19 @@ impl Simulator for TreeSim {
 
         Self::sort_particles(particle_read_data, particle_write_data, tree_staging_data);
 
-        drop(read_buffer_mapped);
-        self.particle_read_buffer.unmap();
+        if self.mappable_primary_buffers {
+            drop(read_buffer_mapped);
+            self.particle_buffers[self.step_num % 2].unmap();
+            drop(tree_staging_mapped);
+            self.tree_buffer.unmap();
+        } else {
+            drop(read_buffer_mapped);
+            self.particle_read_buffer.as_ref().unwrap().unmap();
+            drop(tree_staging_mapped);
+            self.tree_staging_buffer.as_ref().unwrap().unmap();
+        }
         drop(write_buffer_mapped);
         self.particle_write_buffer.unmap();
-        drop(tree_staging_mapped);
-        self.tree_staging_buffer.unmap();
 
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("Tree Flush/Compute/Render Command"),
@@ -300,17 +318,19 @@ impl Simulator for TreeSim {
         }
         encoder.pop_debug_group();
 
-        encoder.push_debug_group("flush tree staging buffer");
-        {
-            encoder.copy_buffer_to_buffer(
-                &self.tree_staging_buffer,
-                0,
-                &self.tree_buffer,
-                0,
-                (std::mem::size_of::<Octant>() as u32 * octree_nodes as u32) as _,
-            );
+        if !self.mappable_primary_buffers {
+            encoder.push_debug_group("flush tree staging buffer");
+            {
+                encoder.copy_buffer_to_buffer(
+                    &self.tree_staging_buffer.as_ref().unwrap(),
+                    0,
+                    &self.tree_buffer,
+                    0,
+                    (std::mem::size_of::<Octant>() as u32 * octree_nodes as u32) as _,
+                );
+            }
+            encoder.pop_debug_group();
         }
-        encoder.pop_debug_group();
 
         encoder.push_debug_group("n-body movement");
         {
@@ -350,6 +370,44 @@ struct Partition<'a> {
 }
 
 impl TreeSim {
+    fn get_particle_read_slice(
+        &self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+    ) -> wgpu::BufferSlice {
+        if self.mappable_primary_buffers {
+            // buffer copy is unnecessary
+            self.particle_buffers[self.step_num % 2].slice(..)
+        } else {
+            let mut read_encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("Particle Data Reader Command"),
+            });
+            {
+                read_encoder.copy_buffer_to_buffer(
+                    &self.particle_buffers[self.step_num % 2],
+                    0,
+                    &self.particle_read_buffer.as_ref().unwrap(),
+                    0,
+                    (std::mem::size_of::<Particle>() as u32 * self.sim_params.particle_num) as _,
+                );
+            }
+            queue.submit(Some(read_encoder.finish()));
+            self.particle_read_buffer.as_ref().unwrap().slice(..)
+        }
+    }
+
+    fn get_tree_write_slice(
+        &self,
+        _device: &wgpu::Device,
+        _queue: &wgpu::Queue,
+    ) -> wgpu::BufferSlice {
+        if self.mappable_primary_buffers {
+            self.tree_buffer.slice(..)
+        } else {
+            self.tree_staging_buffer.as_ref().unwrap().slice(..)
+        }
+    }
+
     fn build_tree(
         &self,
         particle_data: &[Particle],
@@ -400,7 +458,10 @@ impl TreeSim {
             center: [0.0; 3],
             width: bound[0] * 2.0,
             octant_ix: Some(root_ix),
-            particles_ix: Some(BVec::from_iter_in(0..particle_data.len(), &self.alloc_arena)),
+            particles_ix: Some(BVec::from_iter_in(
+                0..particle_data.len(),
+                &self.alloc_arena,
+            )),
         });
         // while there are partitions to process
         while let Some(part) = part_queue.pop_front() {
@@ -453,7 +514,8 @@ impl TreeSim {
                 match part_count {
                     1 => {
                         // leaf node (complete octant processing and finish)
-                        let leaf_particle = particle_data[child_part.particles_ix.as_ref().unwrap()[0]];
+                        let leaf_particle =
+                            particle_data[child_part.particles_ix.as_ref().unwrap()[0]];
                         let mut leaf_octant = Octant {
                             cog: leaf_particle.position,
                             mass: leaf_particle.mass,

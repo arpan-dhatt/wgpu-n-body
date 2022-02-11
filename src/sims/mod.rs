@@ -15,6 +15,13 @@ pub struct Particle {
     pub mass: f32,
 }
 
+pub enum AddParams {
+    TreeSimParams {
+        theta: f32
+    },
+    NaiveSimParams
+}
+
 impl Particle {
     pub fn desc<'a>() -> wgpu::VertexBufferLayout<'a> {
         wgpu::VertexBufferLayout {
@@ -50,6 +57,8 @@ pub struct SimParams {
     pub dt: f32,
 }
 
+
+
 impl Default for SimParams {
     fn default() -> Self {
         SimParams {
@@ -65,6 +74,8 @@ pub trait Simulator {
     fn new(
         device: &wgpu::Device,
         sim_params: SimParams,
+        add_params: AddParams,
+        mappable_primary_buffers: bool,
         init_fn: fn(&SimParams) -> Vec<Particle>,
     ) -> anyhow::Result<Self>
     where

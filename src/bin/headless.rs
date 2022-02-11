@@ -3,7 +3,7 @@ use std::time::Instant;
 use wgpu_n_body::{
     inits,
     runners::OfflineHeadless,
-    sims::{SimParams, TreeSim},
+    sims::{SimParams, TreeSim, AddParams},
 };
 
 #[global_allocator]
@@ -13,7 +13,7 @@ const STEPS: usize = 10;
 
 fn main() {
     let sim_params = SimParams {
-        particle_num: 4000000,
+        particle_num: 40,
         g: 0.000001,
         e: 0.0001,
         dt: 0.016,
@@ -21,6 +21,7 @@ fn main() {
     println!("Initializing Simulation");
     let mut runner = pollster::block_on(OfflineHeadless::<TreeSim>::new(
         sim_params,
+        AddParams::TreeSimParams { theta: 0.75 },
         inits::uniform_init,
     ))
     .unwrap();
