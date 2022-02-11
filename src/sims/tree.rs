@@ -20,7 +20,7 @@ pub struct TreeSim {
     compute_pipeline: wgpu::ComputePipeline,
     work_group_count: u32,
     step_num: usize,
-    alloc_arena: bumpalo_herd::Herd,
+    alloc_arena: bumpalo::Bump,
 }
 
 impl Simulator for TreeSim {
@@ -228,7 +228,7 @@ impl Simulator for TreeSim {
             compute_pipeline,
             work_group_count,
             step_num: 0,
-            alloc_arena: bumpalo_herd::Herd::new(),
+            alloc_arena: bumpalo::Bump::new(),
         })
     }
 
@@ -391,8 +391,6 @@ impl TreeSim {
             bytemuck::cast_slice(&[tree_sim_params]),
         );
         let bound = [bound; 3];
-        let herd_member = self.alloc_arena.get();
-        let member_bump = herd_member.as_bump();
         let mut part_queue = VecDeque::new();
         // initialize slice allocator
         let mut tree_alloc = SliceAlloc::wrap(tree_data);
@@ -402,7 +400,7 @@ impl TreeSim {
             center: [0.0; 3],
             width: bound[0] * 2.0,
             octant_ix: Some(root_ix),
-            particles_ix: Some(BVec::from_iter_in(0..particle_data.len(), member_bump)),
+            particles_ix: Some(BVec::from_iter_in(0..particle_data.len(), &self.alloc_arena)),
         });
         // while there are partitions to process
         while let Some(part) = part_queue.pop_front() {
@@ -431,7 +429,7 @@ impl TreeSim {
                 } else {
                     // needs to be created
                     child_partitions[child_ix].particles_ix =
-                        Some(BVec::from_iter_in(Some(*particle_ix), member_bump));
+                        Some(BVec::from_iter_in(Some(*particle_ix), &self.alloc_arena));
                 }
             }
             octant.bodies += part.particles_ix.unwrap().len() as u32;

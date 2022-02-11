@@ -17,12 +17,8 @@ bytemuck = { version = "1.4", features = [ "derive" ] }
 anyhow = "1.0"
 rand = "0.8.4"
 rayon = "1.5.1"
-parking_lot = "0.11"
 jemallocator = "0.3.2"
 bumpalo = { version = "3.9.1", features = [ "collections" ] }
-bumpalo-herd = "0.1.1"
-crossbeam-channel = "*"
-crossbeam-utils = "*"
 cgmath = "0.18"
 
 [dev-dependencies]
