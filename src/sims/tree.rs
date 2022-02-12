@@ -260,6 +260,14 @@ impl Simulator for TreeSim {
     }
 
     fn encode(&mut self, device: &wgpu::Device, queue: &wgpu::Queue) -> wgpu::CommandEncoder {
+        if self.step_num == 0 {
+            // empty command is sent to the queue to make initial mapping see particles
+            let encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("Initial Map Update"),
+            });
+            queue.submit([encoder.finish()]);
+        }
+
         let read_buffer_slice = self.get_particle_read_slice(device, queue);
         let write_buffer_slice = self.particle_write_buffer.slice(..);
         let tree_staging_slice = self.get_tree_write_slice(device, queue);
@@ -288,19 +296,17 @@ impl Simulator for TreeSim {
 
         Self::sort_particles(particle_read_data, particle_write_data, tree_staging_data);
 
+        drop(write_buffer_mapped);
+        drop(read_buffer_mapped);
+        drop(tree_staging_mapped);
+        self.particle_write_buffer.unmap();
         if self.mappable_primary_buffers {
-            drop(read_buffer_mapped);
             self.particle_buffers[self.step_num % 2].unmap();
-            drop(tree_staging_mapped);
             self.tree_buffer.unmap();
         } else {
-            drop(read_buffer_mapped);
             self.particle_read_buffer.as_ref().unwrap().unmap();
-            drop(tree_staging_mapped);
             self.tree_staging_buffer.as_ref().unwrap().unmap();
         }
-        drop(write_buffer_mapped);
-        self.particle_write_buffer.unmap();
 
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("Tree Flush/Compute/Render Command"),
