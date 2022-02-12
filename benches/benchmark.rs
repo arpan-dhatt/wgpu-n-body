@@ -20,6 +20,7 @@ fn criterion_benchmark(c: &mut Criterion) {
             };
             let mut runner = pollster::block_on(OfflineHeadless::<NaiveSim>::new(
                 sim_params,
+                wgpu_n_body::sims::AddParams::NaiveSimParams,
                 inits::uniform_init,
             ))
             .unwrap();
@@ -38,6 +39,7 @@ fn criterion_benchmark(c: &mut Criterion) {
             };
             let mut runner = pollster::block_on(OfflineHeadless::<TreeSim>::new(
                 sim_params,
+                wgpu_n_body::sims::AddParams::TreeSimParams{ theta: 0.75 },
                 inits::uniform_init,
             ))
             .unwrap();
