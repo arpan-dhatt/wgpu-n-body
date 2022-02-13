@@ -34,7 +34,7 @@ pub fn disc_init(sim_params: &SimParams) -> Vec<Particle> {
         position: [0.0; 3],
         velocity: [0.0; 3],
         acceleration: [0.0; 3],
-        mass: 100000.0,
+        mass: 150000.0,
     });
     for _ in 1..sim_params.particle_num {
         let mut pos: Vec3A = Vec3A::new(unif.sample(&mut rng), unif.sample(&mut rng), 0.0);

@@ -485,9 +485,9 @@ impl TreeSim {
             // calculate octant data and particle child subdivisions
             for particle_ix in part.particles_ix.as_ref().unwrap() {
                 let p = particle_data[*particle_ix];
-                octant.cog[0] += p.position[0];
-                octant.cog[1] += p.position[1];
-                octant.cog[2] += p.position[2];
+                octant.cog[0] += p.position[0] * p.mass;
+                octant.cog[1] += p.position[1] * p.mass;
+                octant.cog[2] += p.position[2] * p.mass;
                 octant.mass += p.mass;
                 let child_ix = Self::decide_octant(&part.center, &p.position);
                 if let Some(ref mut particles_ix) = child_partitions[child_ix].particles_ix {
