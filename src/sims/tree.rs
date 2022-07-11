@@ -1,4 +1,4 @@
-use std::{borrow::Cow, collections::VecDeque};
+use std::{borrow::Cow, collections::VecDeque, time::Instant};
 
 use log::warn;
 use rayon::prelude::*;
@@ -287,14 +287,18 @@ impl Simulator for TreeSim {
             bytemuck::cast_slice_mut(&mut write_buffer_mapped);
         let tree_staging_data: &mut [Octant] = bytemuck::cast_slice_mut(&mut tree_staging_mapped);
 
+        let now = Instant::now();
         let octree_nodes = self.build_tree(
             particle_read_data,
             tree_staging_data,
             queue,
             self.tree_sim_params,
         );
+        println!("    Tree build time: {} µs", now.elapsed().as_micros());
 
+        let now = Instant::now();
         Self::sort_particles(particle_read_data, particle_write_data, tree_staging_data);
+        println!("    Particle sort time: {} µs", now.elapsed().as_micros());
 
         drop(write_buffer_mapped);
         drop(read_buffer_mapped);
